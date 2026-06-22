@@ -1,0 +1,77 @@
+app:
+  name: nepse-trading-bot
+  version: "1.0.0"
+  environment: development
+  timezone: Asia/Kathmandu
+
+# This bot is BUY-ONLY — never places sell orders
+trading:
+  buy_only: true
+  allowed_sides:
+    - buy
+  price_band_percentage: 3.0
+
+monitoring:
+  poll_interval_ms: 500
+  watchlist_refresh_seconds: 60
+  max_concurrent_symbols: 50
+  reconnect_delay_seconds: 5
+  max_reconnect_attempts: 10
+
+broker:
+  profile: naasa
+  config_file: config/brokers/naasa.yaml
+  headless: false
+  timeout_ms: 30000
+  navigation_timeout_ms: 60000
+  screenshot_on_failure: true
+  auto_relogin: true
+  session_check_interval_seconds: 120
+  selectors:
+    # Defaults — overridden by config/brokers/naasa.yaml when profile=naasa
+    username: '#username'
+    password: '#login-password'
+    remember_me: '#rememberMe'
+    login_button: '#kc-login'
+    order_symbol: 'input[placeholder*="Symbol"], input[name="symbol"]'
+    order_quantity: 'input[placeholder*="Qty"], input[name="quantity"]'
+    order_price: 'input[placeholder*="Price"], input[name="price"]'
+    order_type_market: 'button:has-text("Market")'
+    order_type_limit: 'button:has-text("Limit")'
+    buy_button: 'button:has-text("Buy")'
+    sell_button: 'button:has-text("Sell")'
+    submit_order: 'button:has-text("Submit"), button:has-text("Place Order")'
+    captcha: '.captcha, #captcha'
+    session_expired: '#username, #kc-form-login'
+
+strategies:
+  default: upper_circuit_breakout
+  config_file: config/strategies.yaml
+
+risk:
+  daily_capital_limit: 50000
+  max_quantity_per_order: 10
+  max_exposure: 100000
+  max_orders_per_symbol_per_day: 3
+  max_consecutive_failures: 5
+  duplicate_order_window_seconds: 30
+  kill_switch: false
+
+logging:
+  level: INFO
+  format: json
+  file_path: logs/nepse_bot.log
+  max_bytes: 10485760
+  backup_count: 10
+  log_to_database: true
+
+metrics:
+  enabled: true
+  report_interval_seconds: 300
+  latency_percentiles: [50, 95, 99]
+
+
+dashboard:
+  host: "0.0.0.0"
+  port: 8080
+  refresh_interval_ms: 500

@@ -1,0 +1,65 @@
+# Naasa Securities - Naasa X Platform (verified selectors)
+# https://x.naasasecurities.com.np/
+
+name: naasa
+display_name: Naasa Securities (Naasa X)
+broker_number: 58
+
+urls:
+  base: https://x.naasasecurities.com.np
+  dashboard: https://x.naasasecurities.com.np/Home/Dashboard
+  login: https://x.naasasecurities.com.np/Home/Dashboard
+  auth_domain: auth.naasasecurities.com.np
+  order_entry: https://x.naasasecurities.com.np/MarketOrder/Order
+  market_watch: https://x.naasasecurities.com.np/MarketWatch
+  websocket: wss://x.naasasecurities.com.np:8006/WebSocket/Connect
+
+auth:
+  type: keycloak
+  realm: naasa
+  login_field: email
+
+selectors:
+  # Login (Keycloak)
+  username: '#username'
+  password: '#login-password'
+  remember_me: '#rememberMe'
+  login_button: '#kc-login'
+  login_form: '#kc-form-login'
+  session_expired: '#username, #kc-form-login'
+  login_page_indicator: '#username'
+
+  # Navigation
+  nav_order: 'a[href*="MarketOrder/Order"]'
+
+  # Order form (verified on MarketOrder/Order page)
+  order_symbol: '#searchStock'
+  order_quantity: '#OrdertxtQty'
+  order_price: '#OrdertxtPrice'
+  order_type_market: 'label[for="chkOrderTypeMKT"]'
+  order_type_limit: 'label[for="chkOrderTypeLMT"]'
+  buy_side_tab: 'a.buy_frm_order'
+  sell_side_tab: 'a.sl_frm_ordr'
+  buy_button: '#btnBuy'
+  sell_button: '#btnSell'
+  reset_button: '#btnReset'
+  submit_order: '#btnBuy'
+  order_confirmation: '.alert-success, .toast-success, text=success, text=placed'
+
+  captcha: '.captcha, #captcha'
+
+login:
+  wait_for_url_pattern: x.naasasecurities.com.np
+  success_excludes: auth.naasasecurities.com.np
+  post_login_wait_ms: 3000
+
+order:
+  navigate_via_nav: false
+  direct_url: https://x.naasasecurities.com.np/MarketOrder/Order
+  symbol_press_enter: true
+  confirmation_timeout_ms: 15000
+
+market_data:
+  watchlist_search: '#txtAddTicker'
+  market_summary_api: /Home/MarketSummary
+  market_status_api: /MarketWatch/GetMarketStatus

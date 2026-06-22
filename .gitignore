@@ -1,0 +1,38 @@
+# Environment & Secrets
+.env
+*.env
+!.env.example
+config/browser_profiles/
+config/.credentials.enc
+
+# Python & Caching
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+dist/
+build/
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Data & Logs
+logs/
+!logs/.gitkeep
+data/
+!data/.gitkeep
+
+# IDE
+.vscode/
+.idea/
+*.swp
+
+# Testing
+.coverage
+htmlcov/
+
+# OS
+.DS_Store
+Thumbs.db

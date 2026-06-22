@@ -1,0 +1,118 @@
+strategies:
+  ipo_daily_circuit:
+    name: IPO Daily 15% Circuit
+    description: >
+      Buy when IPO hits daily upper circuit (15% above previous close).
+      Each new trading day recalculates circuit from prev_close.
+    enabled: true
+    symbols: []
+    parameters:
+      sell_quantity_threshold: 500
+      buy_demand_threshold: 1000
+      min_volume: 50
+      price_tolerance_pct: 0.01
+      require_at_upper_circuit: true
+      order_type: market
+      quantity_profile: default
+    conditions:
+      - field: current_price
+        operator: gte
+        reference: upper_circuit_price
+      - field: ask_quantity
+        operator: lte
+        value: "${sell_quantity_threshold}"
+      - field: bid_quantity
+        operator: gte
+        value: "${buy_demand_threshold}"
+      - field: volume
+        operator: gte
+        value: "${min_volume}"
+    actions:
+      - type: buy
+        order_type: "${order_type}"
+        quantity_profile: "${quantity_profile}"
+
+  upper_circuit_breakout:
+    name: Upper Circuit Breakout
+    description: >
+      Buy when price hits upper circuit with low sell pressure
+      and strong buy demand.
+    enabled: true
+    symbols: []  # empty = use global watchlist
+    parameters:
+      sell_quantity_threshold: 500
+      buy_demand_threshold: 1000
+      min_volume: 100
+      price_tolerance_pct: 0.01
+      require_at_upper_circuit: true
+      order_type: market
+      quantity_profile: default
+    conditions:
+      - field: current_price
+        operator: gte
+        reference: upper_circuit_price
+      - field: ask_quantity
+        operator: lte
+        value: "${sell_quantity_threshold}"
+      - field: bid_quantity
+        operator: gte
+        value: "${buy_demand_threshold}"
+      - field: volume
+        operator: gte
+        value: "${min_volume}"
+    actions:
+      - type: buy
+        order_type: "${order_type}"
+        quantity_profile: "${quantity_profile}"
+
+  ipo_momentum:
+    name: IPO Momentum
+    description: Aggressive IPO upper-circuit entry on first circuit hit.
+    enabled: false
+    symbols: []
+    parameters:
+      sell_quantity_threshold: 200
+      buy_demand_threshold: 2000
+      min_volume: 50
+      price_tolerance_pct: 0.005
+      require_at_upper_circuit: true
+      order_type: limit
+      quantity_profile: aggressive
+    conditions:
+      - field: current_price
+        operator: gte
+        reference: upper_circuit_price
+      - field: ask_quantity
+        operator: lte
+        value: "${sell_quantity_threshold}"
+      - field: bid_quantity
+        operator: gte
+        value: "${buy_demand_threshold}"
+    actions:
+      - type: buy
+        order_type: "${order_type}"
+        quantity_profile: "${quantity_profile}"
+
+quantity_profiles:
+  default:
+    type: fixed
+    quantity: 20
+  aggressive:
+    type: percentage_of_capital
+    percentage: 10
+    max_quantity: 500
+  conservative:
+    type: fixed
+    quantity: 50
+
+watchlist:
+  symbols:
+    - symbol: IPO1
+      upper_circuit_price: 0
+      enabled: true
+      strategy: upper_circuit_breakout
+      notes: "New IPO - update circuit price before trading"
+    - symbol: IPO2
+      upper_circuit_price: 0
+      enabled: false
+      strategy: upper_circuit_breakout
