@@ -101,15 +101,10 @@ class NepseTradingBot:
         """Fetch market data from broker or fall back to simulation."""
         from market_data.models import MarketTick
 
-        # Skip broker polling ONLY before staging is complete to prevent browser focus sharing from interfering with order input!
+        # Skip broker polling unconditionally before staging is complete to prevent browser focus sharing from interfering with order input!
         if not getattr(self, "staged_flag", False):
-            tz = ZoneInfo("Asia/Kathmandu")
-            now_nepal = datetime.now(tz)
-            is_ipo_window = (now_nepal.hour == 10 and now_nepal.minute >= 50)
-            is_dev_mode = (self.settings.app_env.lower() == "development")
-            if is_ipo_window or is_dev_mode:
-                logger.debug("skipping_broker_market_data_polling_before_staging_complete", symbol=symbol)
-                return None
+            logger.debug("skipping_broker_market_data_polling_before_staging_complete", symbol=symbol)
+            return None
 
         if self.broker and self.broker.session.is_logged_in:
             data = await self.broker.get_market_data(symbol)

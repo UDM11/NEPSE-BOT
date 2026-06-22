@@ -300,7 +300,15 @@ class NaasaBrokerClient(BrokerClient):
 
         self.session.touch()
 
-        # Try scraping from the active order page first (fastest, most reliable)
+        # Try WebSocket cache first (purely in-memory, O(1), sub-millisecond, no page interaction)
+        ws_data = await self._parse_ws_quote(symbol)
+        if ws_data:
+            cached_high = getattr(self, "_cached_high_limit", {}).get(symbol.upper(), 0.0)
+            if cached_high > 0.0:
+                ws_data["high_limit"] = cached_high
+            return ws_data
+
+        # Try scraping from the active order page second
         if self._page and not self._page.is_closed() and "MarketOrder" in self._page.url:
             try:
                 data = await self._page.evaluate(
@@ -369,6 +377,10 @@ class NaasaBrokerClient(BrokerClient):
                     symbol.upper(),
                 )
                 if data and data.get("ltp") > 0:
+                    if not hasattr(self, "_cached_high_limit"):
+                        self._cached_high_limit = {}
+                    self._cached_high_limit[symbol.upper()] = data.get("high_limit", 0.0)
+
                     from market_data.circuit import calculate_daily_circuits
                     prev_close = data.get("prev_close") or data.get("ltp")
                     circuits = calculate_daily_circuits(prev_close, 15.0)
@@ -385,13 +397,14 @@ class NaasaBrokerClient(BrokerClient):
             except Exception as exc:
                 logger.debug("failed_to_scrape_order_page_price", symbol=symbol, error=str(exc))
 
-        # Try WebSocket cache second (fastest, no page interaction)
-        ws_data = await self._parse_ws_quote(symbol)
-        if ws_data:
-            return ws_data
+        # Fetch from Market Watch on second page third (with 2-second throttling)
+        now = datetime.now(timezone.utc)
+        last_mw_time = getattr(self, "_last_mw_time", datetime.min.replace(tzinfo=timezone.utc))
+        if (now - last_mw_time).total_seconds() >= 2.0:
+            self._last_mw_time = now
+            return await self._fetch_market_watch_quote(symbol)
 
-        # Scrape from Market Watch on second page (order page stays untouched)
-        return await self._fetch_market_watch_quote(symbol)
+        return None
 
     async def _fetch_market_watch_quote(self, symbol: str) -> dict[str, Any] | None:
         """Parse symbol row from Naasa X Market Watch HTML table (uses second page)."""

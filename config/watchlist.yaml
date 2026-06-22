@@ -10,11 +10,3 @@ symbols:
     enabled: true
     strategy: ipo_daily_circuit
     is_ipo: true
-
-  # - symbol: APHL
-  #   prev_close: 602.4          # <-- UPDATE THIS daily with previous day closing price
-  #   circuit_percentage: 15     # NEPSE IPO daily band (do not change)
-  #   use_dynamic_circuit: true 
-  #   enabled: true
-  #   strategy: ipo_daily_circuit
-  #   is_ipo: true
