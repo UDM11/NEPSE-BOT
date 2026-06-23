@@ -1,12 +1,17 @@
-# BUY-ONLY — IPO daily 15% upper circuit strategy
-# prev_close = yesterday's closing price (update after each trading day)
-# Bot auto-calculates: upper = prev_close × 1.15, lower = prev_close × 0.85
-
 symbols:
-  - symbol: TPKHL
-    prev_close: 345             # <-- UPDATE THIS daily with previous day closing price
-    circuit_percentage: 15     # NEPSE IPO daily band (do not change)
-    use_dynamic_circuit: true
-    enabled: true
-    strategy: ipo_daily_circuit
-    is_ipo: true
+- symbol: TPKHL
+  prev_close: 396.7
+  quantity: 10
+  circuit_percentage: 15.0
+  use_dynamic_circuit: true
+  enabled: true
+  strategy: ipo_daily_circuit
+  is_ipo: true
+- symbol: YMHL
+  prev_close: 396.7
+  quantity: 10
+  circuit_percentage: 15.0
+  use_dynamic_circuit: true
+  enabled: true
+  strategy: ipo_daily_circuit
+  is_ipo: true

@@ -35,6 +35,7 @@ class WatchlistManager:
                 prev_close=float(entry.get("prev_close", 0)),
                 listing_date=entry.get("listing_date"),
                 notes=entry.get("notes", ""),
+                quantity=int(entry.get("quantity", 10)),
             )
             self._items[item.symbol] = item
         logger.info("watchlist_loaded", count=len(self._items))
@@ -55,3 +56,40 @@ class WatchlistManager:
             self._items[symbol].upper_circuit_price = upper
             if lower:
                 self._items[symbol].lower_circuit_price = lower
+
+    def set(self, item: WatchlistItem) -> None:
+        self._items[item.symbol.upper()] = item
+
+    def delete(self, symbol: str) -> None:
+        symbol = symbol.upper()
+        if symbol in self._items:
+            del self._items[symbol]
+
+    def save(self) -> None:
+        """Save current watchlist items back to the YAML file."""
+        import yaml
+        data = {"symbols": []}
+        for item in self._items.values():
+            entry = {
+                "symbol": item.symbol,
+                "prev_close": item.prev_close,
+                "quantity": item.quantity,
+                "circuit_percentage": item.circuit_percentage,
+                "use_dynamic_circuit": item.use_dynamic_circuit,
+                "enabled": item.enabled,
+                "strategy": item.strategy,
+                "is_ipo": item.is_ipo,
+            }
+            if item.upper_circuit_price:
+                entry["upper_circuit_price"] = item.upper_circuit_price
+            if item.lower_circuit_price:
+                entry["lower_circuit_price"] = item.lower_circuit_price
+            if item.listing_date:
+                entry["listing_date"] = item.listing_date
+            if item.notes:
+                entry["notes"] = item.notes
+            data["symbols"].append(entry)
+
+        with open(self.config_path, "w", encoding="utf-8") as f:
+            yaml.dump(data, f, default_flow_style=False, sort_keys=False)
+        logger.info("watchlist_saved", count=len(self._items))

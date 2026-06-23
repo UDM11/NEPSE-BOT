@@ -21,7 +21,7 @@ monitoring:
 broker:
   profile: naasa
   config_file: config/brokers/naasa.yaml
-  headless: false
+  headless: true
   timeout_ms: 30000
   navigation_timeout_ms: 60000
   screenshot_on_failure: true

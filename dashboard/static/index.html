@@ -1,0 +1,1110 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>NEPSE Ultra-Circuit Trading Bot</title>
+    <!-- Modern Google Font -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
+    
+    <style>
+        :root {
+            --bg-base: #060913;
+            --bg-surface: rgba(17, 23, 41, 0.7);
+            --bg-surface-hover: rgba(26, 35, 60, 0.85);
+            --border-color: rgba(255, 255, 255, 0.08);
+            --border-focus: rgba(0, 240, 255, 0.5);
+            
+            --text-primary: #f1f5f9;
+            --text-secondary: #94a3b8;
+            --text-muted: #64748b;
+            
+            --accent-cyan: #00f0ff;
+            --accent-emerald: #10b981;
+            --accent-rose: #f43f5e;
+            --accent-amber: #fb923c;
+            
+            --glow-cyan: 0 0 20px rgba(0, 240, 255, 0.35);
+            --glow-emerald: 0 0 20px rgba(16, 185, 129, 0.35);
+            --glow-rose: 0 0 20px rgba(244, 63, 94, 0.35);
+            
+            --font-sans: 'Outfit', sans-serif;
+            --font-mono: 'JetBrains Mono', monospace;
+            --transition-fast: 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: var(--font-sans);
+            background: linear-gradient(135deg, #04060c 0%, #0c1224 100%);
+            color: var(--text-primary);
+            min-height: 100vh;
+            overflow-x: hidden;
+            line-height: 1.5;
+        }
+
+        /* Glassmorphism Background Blur */
+        .glass-panel {
+            background: var(--bg-surface);
+            backdrop-filter: blur(16px);
+            -webkit-backdrop-filter: blur(16px);
+            border: 1px solid var(--border-color);
+            border-radius: 16px;
+            padding: 1.5rem;
+            transition: transform var(--transition-fast), border-color var(--transition-fast);
+        }
+
+        .glass-panel:hover {
+            border-color: rgba(255, 255, 255, 0.12);
+        }
+
+        /* Layout Container */
+        .app-container {
+            max-width: 1600px;
+            margin: 0 auto;
+            padding: 1.5rem;
+            display: flex;
+            flex-direction: column;
+            gap: 1.5rem;
+        }
+
+        /* Header Style */
+        header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 1rem 1.5rem;
+            background: rgba(10, 15, 30, 0.6);
+            backdrop-filter: blur(20px);
+            border-bottom: 1px solid var(--border-color);
+            border-radius: 12px;
+        }
+
+        .logo-section h1 {
+            font-size: 1.5rem;
+            font-weight: 800;
+            background: linear-gradient(90deg, #fff 0%, var(--accent-cyan) 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            letter-spacing: -0.5px;
+        }
+
+        .logo-section p {
+            font-size: 0.8125rem;
+            color: var(--text-secondary);
+        }
+
+        /* Connection & Status Indicators */
+        .system-status-badges {
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+        }
+
+        .badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.5rem;
+            padding: 0.375rem 0.75rem;
+            border-radius: 9999px;
+            font-size: 0.75rem;
+            font-weight: 600;
+            letter-spacing: 0.05em;
+            text-transform: uppercase;
+            border: 1px solid rgba(255, 255, 255, 0.05);
+        }
+
+        .badge-success {
+            background: rgba(16, 185, 129, 0.1);
+            color: var(--accent-emerald);
+            border-color: rgba(16, 185, 129, 0.2);
+            box-shadow: 0 0 10px rgba(16, 185, 129, 0.05);
+        }
+
+        .badge-danger {
+            background: rgba(244, 63, 94, 0.1);
+            color: var(--accent-rose);
+            border-color: rgba(244, 63, 94, 0.2);
+        }
+
+        .status-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            display: inline-block;
+        }
+        
+        .badge-success .status-dot { background: var(--accent-emerald); box-shadow: 0 0 8px var(--accent-emerald); }
+        .badge-danger .status-dot { background: var(--accent-rose); box-shadow: 0 0 8px var(--accent-rose); }
+
+        /* Stats Grid */
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+            gap: 1rem;
+        }
+
+        .stat-card {
+            display: flex;
+            flex-direction: column;
+            gap: 0.5rem;
+        }
+
+        .stat-card .stat-label {
+            font-size: 0.75rem;
+            color: var(--text-secondary);
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            font-weight: 600;
+        }
+
+        .stat-card .stat-value {
+            font-size: 1.75rem;
+            font-weight: 700;
+            color: var(--accent-cyan);
+            font-family: var(--font-sans);
+        }
+
+        /* Dashboard Main Content Grid */
+        .main-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 1.5rem;
+        }
+
+        @media (max-width: 1200px) {
+            .main-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        /* Watchlist Manager Panel */
+        .watchlist-manager {
+            display: flex;
+            flex-direction: column;
+            gap: 1.25rem;
+        }
+
+        .section-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-bottom: 1px solid var(--border-color);
+            padding-bottom: 0.75rem;
+        }
+
+        .section-header h2 {
+            font-size: 1.125rem;
+            font-weight: 700;
+            letter-spacing: -0.2px;
+        }
+
+        /* Action Buttons */
+        .btn {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 0.5rem;
+            padding: 0.5rem 1rem;
+            border-radius: 8px;
+            font-weight: 600;
+            font-size: 0.8125rem;
+            cursor: pointer;
+            transition: all var(--transition-fast);
+            border: 1px solid transparent;
+            font-family: var(--font-sans);
+        }
+
+        .btn-primary {
+            background: var(--accent-cyan);
+            color: #04060c;
+            box-shadow: var(--glow-cyan);
+        }
+
+        .btn-primary:hover {
+            opacity: 0.9;
+            transform: translateY(-1px);
+        }
+
+        .btn-secondary {
+            background: rgba(255, 255, 255, 0.05);
+            color: var(--text-primary);
+            border-color: var(--border-color);
+        }
+
+        .btn-secondary:hover {
+            background: rgba(255, 255, 255, 0.1);
+            border-color: rgba(255, 255, 255, 0.2);
+        }
+
+        .btn-danger {
+            background: rgba(244, 63, 94, 0.1);
+            color: var(--accent-rose);
+            border-color: rgba(244, 63, 94, 0.2);
+        }
+
+        .btn-danger:hover {
+            background: var(--accent-rose);
+            color: white;
+            box-shadow: var(--glow-rose);
+        }
+
+        /* Arm / Execute Massive Action Panel */
+        .execute-panel {
+            background: radial-gradient(100% 100% at 50% 0%, rgba(0, 240, 255, 0.08) 0%, rgba(6, 9, 19, 0) 100%), var(--bg-surface);
+            border: 1px solid rgba(0, 240, 255, 0.2);
+            text-align: center;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            padding: 2.5rem 1.5rem;
+        }
+
+        .execute-title {
+            font-size: 1.25rem;
+            font-weight: 800;
+            color: #fff;
+            margin-bottom: 0.5rem;
+            letter-spacing: -0.2px;
+        }
+
+        .execute-desc {
+            color: var(--text-secondary);
+            font-size: 0.875rem;
+            max-width: 420px;
+            margin-bottom: 1.5rem;
+        }
+
+        /* Pulsing Massive Launch Button */
+        .btn-massive-execute {
+            background: linear-gradient(135deg, var(--accent-cyan) 0%, #0099ff 100%);
+            color: #04060c;
+            padding: 1rem 3rem;
+            font-size: 1.125rem;
+            font-weight: 800;
+            border-radius: 12px;
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+            box-shadow: 0 0 30px rgba(0, 240, 255, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.4);
+            border: none;
+            cursor: pointer;
+            transition: all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+            animation: pulse-glow 2s infinite;
+        }
+
+        .btn-massive-execute:hover {
+            transform: scale(1.05) translateY(-2px);
+            box-shadow: 0 0 45px rgba(0, 240, 255, 0.65);
+        }
+
+        .btn-massive-execute:active {
+            transform: scale(0.98) translateY(1px);
+        }
+
+        @keyframes pulse-glow {
+            0% {
+                box-shadow: 0 0 20px rgba(0, 240, 255, 0.4);
+            }
+            50% {
+                box-shadow: 0 0 35px rgba(0, 240, 255, 0.7);
+            }
+            100% {
+                box-shadow: 0 0 20px rgba(0, 240, 255, 0.4);
+            }
+        }
+
+        /* Add Symbol Form */
+        .add-symbol-form {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr) auto;
+            gap: 0.75rem;
+            align-items: flex-end;
+            background: rgba(255, 255, 255, 0.02);
+            padding: 1rem;
+            border-radius: 10px;
+            border: 1px solid rgba(255, 255, 255, 0.04);
+        }
+
+        @media (max-width: 768px) {
+            .add-symbol-form {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        .form-group {
+            display: flex;
+            flex-direction: column;
+            gap: 0.375rem;
+        }
+
+        .form-group label {
+            font-size: 0.75rem;
+            color: var(--text-secondary);
+            font-weight: 500;
+        }
+
+        .form-input {
+            background: rgba(5, 7, 15, 0.8);
+            border: 1px solid var(--border-color);
+            border-radius: 6px;
+            padding: 0.5rem 0.75rem;
+            color: white;
+            font-family: var(--font-sans);
+            font-size: 0.875rem;
+            transition: border-color var(--transition-fast);
+        }
+
+        .form-input:focus {
+            outline: none;
+            border-color: var(--accent-cyan);
+            box-shadow: 0 0 0 2px rgba(0, 240, 255, 0.15);
+        }
+
+        /* Tables & Lists */
+        .table-container {
+            overflow-x: auto;
+            border-radius: 8px;
+            border: 1px solid var(--border-color);
+            background: rgba(5, 8, 16, 0.4);
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 0.875rem;
+            text-align: left;
+        }
+
+        th {
+            padding: 0.75rem 1rem;
+            color: var(--text-secondary);
+            font-weight: 600;
+            border-bottom: 1px solid var(--border-color);
+            background: rgba(255, 255, 255, 0.02);
+            font-size: 0.75rem;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+
+        td {
+            padding: 0.75rem 1rem;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+            color: var(--text-primary);
+        }
+
+        tr:last-child td {
+            border-bottom: none;
+        }
+
+        tr:hover td {
+            background: rgba(255, 255, 255, 0.01);
+        }
+
+        /* Custom inputs inside tables for fast edit */
+        .table-input {
+            background: transparent;
+            border: 1px solid transparent;
+            color: white;
+            font-family: var(--font-sans);
+            font-size: 0.875rem;
+            padding: 0.25rem 0.5rem;
+            border-radius: 4px;
+            width: 80px;
+        }
+
+        .table-input:hover {
+            border-color: var(--border-color);
+            background: rgba(0,0,0,0.2);
+        }
+
+        .table-input:focus {
+            outline: none;
+            border-color: var(--accent-cyan);
+            background: rgba(0,0,0,0.4);
+        }
+
+        .symbol-badge {
+            font-family: var(--font-mono);
+            font-weight: 700;
+            background: rgba(255, 255, 255, 0.05);
+            padding: 0.25rem 0.5rem;
+            border-radius: 4px;
+            color: var(--accent-cyan);
+        }
+
+        /* Logs Panel (Monospace text) */
+        .logs-panel {
+            font-family: var(--font-mono);
+            font-size: 0.75rem;
+            background: #03050a;
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            padding: 1rem;
+            height: 240px;
+            overflow-y: auto;
+            color: #10b981;
+        }
+
+        .log-entry {
+            margin-bottom: 0.25rem;
+            line-height: 1.4;
+            border-bottom: 1px solid rgba(255,255,255,0.01);
+            padding-bottom: 0.25rem;
+        }
+
+        .log-time {
+            color: var(--text-muted);
+        }
+
+        .log-error {
+            color: var(--accent-rose);
+        }
+
+        .log-info {
+            color: var(--text-primary);
+        }
+
+        .log-success {
+            color: var(--accent-emerald);
+        }
+
+        /* Toast Notifications */
+        .toast-container {
+            position: fixed;
+            bottom: 2rem;
+            right: 2rem;
+            display: flex;
+            flex-direction: column;
+            gap: 0.5rem;
+            z-index: 9999;
+        }
+
+        .toast {
+            background: rgba(10, 15, 30, 0.9);
+            border: 1px solid rgba(0, 240, 255, 0.3);
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
+            color: white;
+            padding: 0.75rem 1.5rem;
+            border-radius: 8px;
+            font-size: 0.875rem;
+            font-weight: 500;
+            min-width: 280px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            backdrop-filter: blur(10px);
+            animation: slide-in 0.3s cubic-bezier(0.165, 0.84, 0.44, 1);
+        }
+
+        @keyframes slide-in {
+            from { transform: translateX(100%); opacity: 0; }
+            to { transform: translateX(0); opacity: 1; }
+        }
+
+        .toast.error {
+            border-color: rgba(244, 63, 94, 0.3);
+        }
+    </style>
+</head>
+<body>
+
+    <div class="app-container">
+        
+        <!-- Header -->
+        <header>
+            <div class="logo-section">
+                <h1>NEPSE ULTRA-CIRCUIT TRADING BOT</h1>
+                <p>High-Frequency Staging & Preemptive Execution Engine</p>
+            </div>
+            
+            <div class="system-status-badges">
+                <span class="badge badge-success" id="connection-status">
+                    <span class="status-dot"></span> Websocket Connected
+                </span>
+                
+                <span class="badge badge-success" id="risk-badge">
+                    <span class="status-dot"></span> Risk Guard Active
+                </span>
+            </div>
+        </header>
+
+        <!-- Stats Overview Cards -->
+        <div class="stats-grid">
+            <div class="glass-panel stat-card">
+                <span class="stat-label">Connection Uptime</span>
+                <span class="stat-value" id="stat-uptime">--</span>
+            </div>
+            <div class="glass-panel stat-card">
+                <span class="stat-label">E2E Latency (p95)</span>
+                <span class="stat-value" id="stat-latency" style="color: var(--accent-emerald)">--</span>
+            </div>
+            <div class="glass-panel stat-card">
+                <span class="stat-label">Orders Executed Today</span>
+                <span class="stat-value" id="stat-orders" style="color: white">0</span>
+            </div>
+            <div class="glass-panel stat-card">
+                <span class="stat-label">Risk Exposure</span>
+                <span class="stat-value" id="stat-exposure" style="color: var(--accent-amber)">Loading...</span>
+            </div>
+        </div>
+
+        <!-- ARM & LAUNCH SECTION -->
+        <div class="glass-panel execute-panel">
+            <div class="execute-title">ARM & EXECUTE TRIGGER</div>
+            <p class="execute-desc">
+                Arm the bot and prepare staging forms for all enabled watchlist stocks.
+                Once armed, the bot will monitor market feed and trigger order placements within milliseconds of hitting circuit levels.
+            </p>
+            <button class="btn-massive-execute" onclick="executeBot()">
+                Arm & Execute Bot
+            </button>
+        </div>
+
+        <!-- Main Configuration and Live Quote Grid -->
+        <div class="main-grid">
+            
+            <!-- Watchlist Configurator Panel -->
+            <div class="glass-panel watchlist-manager">
+                <div class="section-header">
+                    <h2>Watchlist Configurations (Saved in YAML)</h2>
+                    <div style="display: flex; gap: 0.5rem;">
+                        <button class="btn btn-secondary" onclick="loadWatchlistConfig()">Reload Config</button>
+                        <button class="btn btn-primary" onclick="saveWatchlistConfig()">Save Watchlist</button>
+                    </div>
+                </div>
+
+                <!-- Add Symbol Form -->
+                <div class="add-symbol-form">
+                    <div class="form-group">
+                        <label for="new-symbol">Symbol</label>
+                        <input type="text" id="new-symbol" class="form-input" placeholder="e.g. TPKHL" style="text-transform: uppercase;">
+                    </div>
+                    <div class="form-group">
+                        <label for="new-qty">Quantity</label>
+                        <input type="number" id="new-qty" class="form-input" placeholder="e.g. 10" min="1" value="10">
+                    </div>
+                    <div class="form-group">
+                        <label for="new-prev">Prev Close</label>
+                        <input type="number" id="new-prev" class="form-input" placeholder="e.g. 345" min="1" step="0.1">
+                    </div>
+                    <div class="form-group">
+                        <label for="new-circuit">Circuit %</label>
+                        <input type="number" id="new-circuit" class="form-input" placeholder="15" min="1" max="100" value="15">
+                    </div>
+                    <button class="btn btn-primary" onclick="addWatchlistItem()" style="height: 38px;">Add Stock</button>
+                </div>
+
+                <!-- Watchlist Edit Table -->
+                <div class="table-container">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Symbol</th>
+                                <th>Quantity</th>
+                                <th>Prev Close</th>
+                                <th>Circuit %</th>
+                                <th>Strategy</th>
+                                <th>IPO</th>
+                                <th>Status</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="config-table-body">
+                            <!-- Dynamic rows loaded from api -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- Live Monitoring Panel -->
+            <div class="glass-panel watchlist-manager">
+                <div class="section-header">
+                    <h2>Live Quote Watcher & Circuit Monitor</h2>
+                    <div class="system-status-badges">
+                        <span id="market-status" class="badge badge-success" style="background: rgba(0, 240, 255, 0.1); color: var(--accent-cyan); border-color: rgba(0,240,255,0.2)">Market Open</span>
+                    </div>
+                </div>
+
+                <div class="table-container">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Symbol</th>
+                                <th>LTP</th>
+                                <th>Bid Qty</th>
+                                <th>Ask Qty</th>
+                                <th>Volume</th>
+                                <th>Circuit Target</th>
+                                <th>Circuit Status</th>
+                            </tr>
+                        </thead>
+                        <tbody id="live-table-body">
+                            <!-- Live updates from websocket -->
+                            <tr>
+                                <td colspan="7" style="text-align: center; color: var(--text-muted);">Waiting for websocket tick data...</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+                
+                <!-- System Actions Bar -->
+                <div class="section-header" style="margin-top: 1rem;">
+                    <h2>System Control</h2>
+                </div>
+                <div style="display: flex; gap: 1rem; align-items: center;">
+                    <button class="btn btn-danger" onclick="activateKillSwitch()" style="padding: 0.75rem 2rem; font-size: 0.875rem; flex: 1;">Activate System Kill Switch</button>
+                    <button class="btn btn-secondary" onclick="deactivateKillSwitch()" style="padding: 0.75rem 1.5rem; font-size: 0.875rem;">Reset Kill Switch</button>
+                </div>
+            </div>
+
+        </div>
+
+        <!-- Lower Grid: Signals and Orders logs -->
+        <div class="main-grid">
+            <div class="glass-panel">
+                <div class="section-header">
+                    <h2>Recent Trading Signals</h2>
+                </div>
+                <div class="table-container" style="max-height: 240px; overflow-y: auto; border: none;">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Time</th>
+                                <th>Symbol</th>
+                                <th>Strategy</th>
+                                <th>Trigger Price</th>
+                                <th>Action</th>
+                                <th>Approved</th>
+                            </tr>
+                        </thead>
+                        <tbody id="signals-tbody">
+                            <tr><td colspan="6" style="text-align: center; color: var(--text-muted)">No signals captured.</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <div class="glass-panel">
+                <div class="section-header">
+                    <h2>Recent Placed Orders</h2>
+                </div>
+                <div class="table-container" style="max-height: 240px; overflow-y: auto; border: none;">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Time</th>
+                                <th>Symbol</th>
+                                <th>Side</th>
+                                <th>Quantity</th>
+                                <th>Price</th>
+                                <th>Latency</th>
+                                <th>Status</th>
+                            </tr>
+                        </thead>
+                        <tbody id="orders-tbody">
+                            <tr><td colspan="7" style="text-align: center; color: var(--text-muted)">No orders placed.</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+    </div>
+
+    <!-- Toast Notifications Container -->
+    <div class="toast-container" id="toast-container"></div>
+
+    <script>
+        // Store watchlist items locally for display/edits
+        let watchlistItems = [];
+        
+        // Setup Websocket
+        const wsProtocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
+        const ws = new WebSocket(`${wsProtocol}//${location.host}/ws`);
+        
+        ws.onopen = () => {
+            document.getElementById('connection-status').innerHTML = '<span class="status-dot"></span> Websocket Connected';
+            document.getElementById('connection-status').className = 'badge badge-success';
+            showToast("Websocket channel connected.");
+        };
+
+        ws.onclose = () => {
+            document.getElementById('connection-status').innerHTML = '<span class="status-dot"></span> Disconnected';
+            document.getElementById('connection-status').className = 'badge badge-danger';
+            showToast("Websocket disconnected. Trying to reconnect...", true);
+        };
+
+        ws.onmessage = (event) => {
+            const data = JSON.parse(event.data);
+            if (data.type === 'update') {
+                updateLiveFeed(data);
+                updateStats(data);
+            }
+        };
+
+        // Load Watchlist YAML Configuration on Startup
+        async function loadWatchlistConfig() {
+            try {
+                const response = await fetch('/api/watchlist/config');
+                const data = await response.json();
+                watchlistItems = data.symbols || [];
+                renderConfigWatchlist();
+                showToast("Watchlist configuration loaded.");
+            } catch (err) {
+                showToast("Failed to load watchlist configuration.", true);
+            }
+        }
+
+        // Render configuration list in editable inputs
+        function renderConfigWatchlist() {
+            const tbody = document.getElementById('config-table-body');
+            tbody.innerHTML = '';
+            
+            if (watchlistItems.length === 0) {
+                tbody.innerHTML = `<tr><td colspan="8" style="text-align: center; color: var(--text-muted)">No symbols configured. Use the form above to add a stock.</td></tr>`;
+                return;
+            }
+
+            watchlistItems.forEach((item, index) => {
+                const tr = document.createElement('tr');
+                tr.innerHTML = `
+                    <td><span class="symbol-badge">${item.symbol}</span></td>
+                    <td>
+                        <input type="number" class="table-input" value="${item.quantity}" min="1" 
+                            onchange="updateLocalItem(${index}, 'quantity', this.value)">
+                    </td>
+                    <td>
+                        <input type="number" class="table-input" value="${item.prev_close}" min="0.1" step="0.1" 
+                            onchange="updateLocalItem(${index}, 'prev_close', this.value)">
+                    </td>
+                    <td>
+                        <input type="number" class="table-input" value="${item.circuit_percentage}" min="1" max="100" 
+                            onchange="updateLocalItem(${index}, 'circuit_percentage', this.value)">
+                    </td>
+                    <td><span style="color: var(--text-secondary); font-size: 0.75rem">${item.strategy}</span></td>
+                    <td>
+                        <input type="checkbox" ${item.is_ipo ? 'checked' : ''} 
+                            onchange="updateLocalItem(${index}, 'is_ipo', this.checked)">
+                    </td>
+                    <td>
+                        <span class="badge ${item.enabled ? 'badge-success' : 'badge-danger'}" style="cursor:pointer;"
+                            onclick="toggleItemEnabled(${index})">
+                            ${item.enabled ? 'Enabled' : 'Disabled'}
+                        </span>
+                    </td>
+                    <td>
+                        <button class="btn btn-danger" style="padding: 0.25rem 0.5rem; font-size: 0.75rem" 
+                            onclick="deleteLocalItem(${index})">Delete</button>
+                    </td>
+                `;
+                tbody.appendChild(tr);
+            });
+        }
+
+        function updateLocalItem(index, key, val) {
+            if (key === 'quantity') watchlistItems[index].quantity = parseInt(val) || 10;
+            else if (key === 'prev_close') watchlistItems[index].prev_close = parseFloat(val) || 0.0;
+            else if (key === 'circuit_percentage') watchlistItems[index].circuit_percentage = parseFloat(val) || 15.0;
+            else if (key === 'is_ipo') watchlistItems[index].is_ipo = !!val;
+        }
+
+        function toggleItemEnabled(index) {
+            watchlistItems[index].enabled = !watchlistItems[index].enabled;
+            renderConfigWatchlist();
+        }
+
+        function deleteLocalItem(index) {
+            watchlistItems.splice(index, 1);
+            renderConfigWatchlist();
+            showToast("Item removed from list (unsaved).");
+        }
+
+        // Add Stock to Configuration
+        function addWatchlistItem() {
+            const symbolEl = document.getElementById('new-symbol');
+            const qtyEl = document.getElementById('new-qty');
+            const prevEl = document.getElementById('new-prev');
+            const circuitEl = document.getElementById('new-circuit');
+
+            const symbol = symbolEl.value.trim().toUpperCase();
+            const quantity = parseInt(qtyEl.value);
+            const prev_close = parseFloat(prevEl.value);
+            const circuit_percentage = parseFloat(circuitEl.value) || 15.0;
+
+            if (!symbol || isNaN(quantity) || isNaN(prev_close)) {
+                showToast("Please fill in Symbol, Quantity, and Prev Close.", true);
+                return;
+            }
+
+            // Check if symbol already exists
+            if (watchlistItems.some(i => i.symbol === symbol)) {
+                showToast(`Symbol ${symbol} already in configuration.`, true);
+                return;
+            }
+
+            watchlistItems.push({
+                symbol: symbol,
+                quantity: quantity,
+                prev_close: prev_close,
+                circuit_percentage: circuit_percentage,
+                strategy: 'ipo_daily_circuit',
+                is_ipo: true,
+                enabled: true
+            });
+
+            // Reset Form fields
+            symbolEl.value = '';
+            qtyEl.value = '10';
+            prevEl.value = '';
+            circuitEl.value = '15';
+
+            renderConfigWatchlist();
+            showToast(`Added ${symbol} to staging list.`);
+        }
+
+        // Save Watchlist to Server (yaml)
+        async function saveWatchlistConfig() {
+            try {
+                const response = await fetch('/api/watchlist/config', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ symbols: watchlistItems })
+                });
+                const res = await response.json();
+                if (res.status === 'success') {
+                    showToast("Watchlist saved to watchlist.yaml successfully!");
+                } else {
+                    showToast("Failed to save watchlist: " + res.message, true);
+                }
+            } catch (err) {
+                showToast("Connection error saving watchlist config.", true);
+            }
+        }
+
+        // Arm & Execute Bot API Trigger
+        async function executeBot() {
+            const btn = document.querySelector('.btn-massive-execute');
+            const oldText = btn.textContent;
+            btn.textContent = "Arming system...";
+            btn.style.opacity = '0.6';
+            btn.style.pointerEvents = 'none';
+
+            try {
+                const response = await fetch('/api/execute', { method: 'POST' });
+                const res = await response.json();
+                if (res.status === 'success') {
+                    showToast("System armed! Staging and fast execution loops initialized.");
+                    btn.textContent = "SYSTEM ARMED";
+                    btn.style.background = 'linear-gradient(135deg, var(--accent-emerald) 0%, #059669 100%)';
+                    btn.style.boxShadow = '0 0 30px rgba(16, 185, 129, 0.5)';
+                    // Re-enable after 3 seconds with new armed state indication
+                    setTimeout(() => {
+                        btn.textContent = "Arm & Execute Bot";
+                        btn.style.background = '';
+                        btn.style.boxShadow = '';
+                        btn.style.opacity = '1';
+                        btn.style.pointerEvents = 'auto';
+                    }, 4000);
+                } else {
+                    showToast("Failed to execute/arm: " + res.message, true);
+                    btn.textContent = oldText;
+                    btn.style.opacity = '1';
+                    btn.style.pointerEvents = 'auto';
+                }
+            } catch (err) {
+                showToast("Connection error executing/arming bot.", true);
+                btn.textContent = oldText;
+                btn.style.opacity = '1';
+                btn.style.pointerEvents = 'auto';
+            }
+        }
+
+        // Update Live monitor feed table
+        function updateLiveFeed(data) {
+            if (!data.watchlist) return;
+            const tbody = document.getElementById('live-table-body');
+            tbody.innerHTML = '';
+
+            if (data.watchlist.length === 0) {
+                tbody.innerHTML = `<tr><td colspan="7" style="text-align: center; color: var(--text-secondary)">No live tick data available. Arm system to begin monitoring.</td></tr>`;
+                return;
+            }
+
+            data.watchlist.forEach(s => {
+                const displayLtp = s.ltp > 0 ? s.ltp : s.prev_close;
+                const pctChange = (s.prev_close > 0 && s.ltp > 0) ? ((s.ltp - s.prev_close) / s.prev_close * 100) : 0.0;
+                const statusColor = s.is_at_upper_circuit ? 'var(--accent-rose)' : 'var(--text-secondary)';
+                const statusText = s.is_at_upper_circuit ? 'CIRCUIT HIT (9.9%+)' : 'Monitoring...';
+
+                tbody.innerHTML += `
+                    <tr>
+                        <td><span class="symbol-badge">${s.symbol}</span></td>
+                        <td><strong>${displayLtp.toFixed(1)}</strong> <span style="font-size:0.75rem; color: ${pctChange >= 0 ? 'var(--accent-emerald)' : 'var(--accent-rose)'}">${pctChange >= 0 ? '▲' : '▼'} ${pctChange.toFixed(1)}%</span></td>
+                        <td>${s.bid_quantity}</td>
+                        <td>${s.ask_quantity}</td>
+                        <td>${s.volume}</td>
+                        <td><span style="color: var(--accent-cyan); font-weight:600;">${s.upper_circuit.toFixed(1)}</span></td>
+                        <td>
+                            <span class="badge ${s.is_at_upper_circuit ? 'badge-danger' : 'badge-success'}" style="font-size:0.75rem">
+                                <span class="status-dot"></span> ${statusText}
+                            </span>
+                        </td>
+                    </tr>
+                `;
+            });
+        }
+
+        // Update System Stats Dashboard cards
+        function updateStats(d) {
+            if (d.timestamp) {
+                // keep stats fresh
+            }
+            if (d.metrics) {
+                const e2e = d.metrics.end_to_end_latency;
+                if (e2e) {
+                    document.getElementById('stat-latency').textContent = `${e2e.p95?.toFixed(1) || '--'} ms`;
+                }
+            }
+            if (d.counters) {
+                document.getElementById('stat-orders').textContent = d.counters.orders_executed || 0;
+            }
+        }
+
+        // Load Logs / Orders / Signals
+        async function loadSignalsAndOrders() {
+            try {
+                // Signals
+                const sigResponse = await fetch('/api/signals');
+                const sigData = await sigResponse.json();
+                const sigTbody = document.getElementById('signals-tbody');
+                if (sigData.signals && sigData.signals.length > 0) {
+                    sigTbody.innerHTML = '';
+                    sigData.signals.forEach(s => {
+                        const time = new Date(s.created_at).toLocaleTimeString();
+                        sigTbody.innerHTML += `
+                            <tr>
+                                <td>${time}</td>
+                                <td><span class="symbol-badge">${s.symbol}</span></td>
+                                <td>${s.strategy}</td>
+                                <td>${s.trigger_price.toFixed(1)}</td>
+                                <td><span style="color: var(--accent-cyan); font-weight:700;">${s.action.toUpperCase()}</span></td>
+                                <td><span class="badge badge-success">${s.approved ? 'YES' : 'NO'}</span></td>
+                            </tr>
+                        `;
+                    });
+                }
+                
+                // Orders
+                const ordResponse = await fetch('/api/orders');
+                const ordData = await ordResponse.json();
+                const ordTbody = document.getElementById('orders-tbody');
+                if (ordData.orders && ordData.orders.length > 0) {
+                    ordTbody.innerHTML = '';
+                    ordData.orders.forEach(o => {
+                        const time = new Date(o.created_at).toLocaleTimeString();
+                        const statColor = o.status === 'executed' || o.status === 'submitted' ? 'var(--accent-emerald)' : 'var(--accent-rose)';
+                        ordTbody.innerHTML += `
+                            <tr>
+                                <td>${time}</td>
+                                <td><span class="symbol-badge">${o.symbol}</span></td>
+                                <td><span style="color: var(--accent-cyan); font-weight:700;">${o.side.toUpperCase()}</span></td>
+                                <td>${o.quantity}</td>
+                                <td>${o.price.toFixed(1)}</td>
+                                <td>${o.latency_ms ? o.latency_ms + 'ms' : '--'}</td>
+                                <td><span style="color: ${statColor}; font-weight:600;">${o.status.toUpperCase()}</span></td>
+                            </tr>
+                        `;
+                    });
+                }
+            } catch (err) {
+                console.error("Failed to load logs/orders", err);
+            }
+        }
+
+        // System Risk Panel Settings
+        async function loadRiskStatus() {
+            try {
+                const response = await fetch('/api/risk');
+                const d = await response.json();
+                const badge = document.getElementById('risk-badge');
+                if (d.kill_switch_active) {
+                    badge.innerHTML = '<span class="status-dot"></span> KILL SWITCH ACTIVE';
+                    badge.className = 'badge badge-danger';
+                } else {
+                    badge.innerHTML = '<span class="status-dot"></span> Risk Guard Active';
+                    badge.className = 'badge badge-success';
+                }
+
+                // Update exposure stat card
+                document.getElementById('stat-exposure').textContent = `${d.current_exposure || 0} / ${d.max_exposure || 100000}`;
+            } catch (err) {
+                console.error(err);
+            }
+        }
+
+        async function activateKillSwitch() {
+            if (confirm("CRITICAL: Activate system-wide trading kill switch? All execution will halt immediately.")) {
+                await fetch('/api/kill-switch/activate', { method: 'POST' });
+                showToast("Trading HALTED. Kill Switch Activated!", true);
+                loadRiskStatus();
+            }
+        }
+
+        async function deactivateKillSwitch() {
+            await fetch('/api/kill-switch/deactivate', { method: 'POST' });
+            showToast("System Reset. Kill Switch deactivated.");
+            loadRiskStatus();
+        }
+
+        // Helper to display floating alerts (toasts)
+        function showToast(message, isError = false) {
+            const container = document.getElementById('toast-container');
+            const toast = document.createElement('div');
+            toast.className = `toast ${isError ? 'error' : ''}`;
+            toast.innerHTML = `
+                <span>${message}</span>
+                <span style="margin-left: 1rem; cursor: pointer; font-size: 0.75rem;" onclick="this.parentElement.remove()">✕</span>
+            `;
+            container.appendChild(toast);
+            
+            // Auto dismiss
+            setTimeout(() => {
+                toast.style.opacity = '0';
+                toast.style.transition = 'opacity 0.5s ease';
+                setTimeout(() => toast.remove(), 500);
+            }, 4000);
+        }
+
+        // Periodic refreshes
+        setInterval(loadRiskStatus, 3000);
+        setInterval(loadSignalsAndOrders, 2000);
+        
+        // Fetch System status info
+        async function fetchSystemInfo() {
+            try {
+                const r = await fetch('/api/health');
+                const d = await r.json();
+                document.getElementById('stat-uptime').textContent = d.uptime || 'unknown';
+            } catch (e) {
+                console.error(e);
+            }
+        }
+        setInterval(fetchSystemInfo, 5000);
+
+        // Initial setup calls
+        loadWatchlistConfig();
+        loadRiskStatus();
+        loadSignalsAndOrders();
+        fetchSystemInfo();
+
+    </script>
+</body>
+</html>

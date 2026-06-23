@@ -97,3 +97,4 @@ class WatchlistItem:
     prev_close: float = 0.0
     listing_date: str | None = None
     notes: str = ""
+    quantity: int = 10

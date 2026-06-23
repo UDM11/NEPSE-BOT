@@ -13,6 +13,7 @@ from fastapi.staticfiles import StaticFiles
 
 from core.logging_config import get_logger
 from core.metrics import metrics
+from market_data.models import WatchlistItem
 
 logger = get_logger("dashboard")
 
@@ -91,7 +92,7 @@ def create_dashboard_app(bot_state: dict | None = None) -> FastAPI:
                         "quantity": o.quantity,
                         "price": o.price,
                         "status": o.status.value,
-                        "created_at": o.created_at.isoformat(),
+                        "created_at": o.created_at.replace(tzinfo=timezone.utc).isoformat() if o.created_at.tzinfo is None else o.created_at.isoformat(),
                         "latency_ms": o.latency_ms,
                     }
                     for o in recent
@@ -113,7 +114,7 @@ def create_dashboard_app(bot_state: dict | None = None) -> FastAPI:
                         "action": s.action,
                         "trigger_price": s.trigger_price,
                         "approved": s.approved,
-                        "created_at": s.created_at.isoformat(),
+                        "created_at": s.created_at.replace(tzinfo=timezone.utc).isoformat() if s.created_at.tzinfo is None else s.created_at.isoformat(),
                     }
                     for s in recent
                 ]
@@ -156,6 +157,61 @@ def create_dashboard_app(bot_state: dict | None = None) -> FastAPI:
             risk.deactivate_kill_switch()
             return {"status": "deactivated"}
         return {"status": "error"}
+
+    @app.get("/api/watchlist/config")
+    async def get_watchlist_config():
+        watchlist_mgr = state.get("bot").watchlist if state.get("bot") else None
+        if watchlist_mgr:
+            return {
+                "symbols": [
+                    {
+                        "symbol": item.symbol,
+                        "prev_close": item.prev_close,
+                        "quantity": item.quantity,
+                        "circuit_percentage": item.circuit_percentage,
+                        "enabled": item.enabled,
+                        "is_ipo": item.is_ipo,
+                        "strategy": item.strategy,
+                    }
+                    for item in watchlist_mgr._items.values()
+                ]
+            }
+        return {"symbols": []}
+
+    @app.post("/api/watchlist/config")
+    async def save_watchlist_config(data: dict):
+        bot = state.get("bot")
+        if not bot or not bot.watchlist:
+            return {"status": "error", "message": "Watchlist manager not available"}
+        
+        symbols_data = data.get("symbols", [])
+        bot.watchlist._items.clear()
+        for s in symbols_data:
+            item = WatchlistItem(
+                symbol=s["symbol"].upper(),
+                prev_close=float(s.get("prev_close", 0)),
+                quantity=int(s.get("quantity", 10)),
+                circuit_percentage=float(s.get("circuit_percentage", 15)),
+                enabled=bool(s.get("enabled", True)),
+                is_ipo=bool(s.get("is_ipo", True)),
+                strategy=s.get("strategy", "ipo_daily_circuit"),
+            )
+            bot.watchlist.set(item)
+            
+        bot.watchlist.save()
+        return {"status": "success", "message": "Watchlist saved successfully"}
+
+    @app.post("/api/execute")
+    async def execute_bot():
+        bot = state.get("bot")
+        if bot:
+            if bot.watchlist:
+                bot.watchlist.load()
+            if bot.market_monitor:
+                await bot.market_monitor.refresh_symbols()
+            await bot.start_staging_orchestrators()
+            return {"status": "success", "message": "Bot executed/armed successfully for all symbols"}
+        return {"status": "error", "message": "Bot instance not found"}
 
     @app.websocket("/ws")
     async def websocket_endpoint(websocket: WebSocket):

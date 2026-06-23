@@ -43,6 +43,7 @@ class NaasaBrokerClient(BrokerClient):
         self._fast_buy_clicked = False
         self._fast_buy_click_time = 0.0
         self._market_page_lock = asyncio.Lock()
+        self._symbol_pages = {}
 
     async def login(self) -> bool:
         """Login to Naasa X via Keycloak email/password form."""
@@ -278,6 +279,8 @@ class NaasaBrokerClient(BrokerClient):
             except Exception as e:
                 logger.warning("failed_to_close_naasa_http_client", error=str(e))
             self._http_client = None
+        if hasattr(self, "_symbol_pages"):
+            self._symbol_pages.clear()
         await super().shutdown()
 
     async def get_market_data(self, symbol: str) -> dict[str, Any] | None:
@@ -300,18 +303,79 @@ class NaasaBrokerClient(BrokerClient):
 
         self.session.touch()
 
-        # Try WebSocket cache first (purely in-memory, O(1), sub-millisecond, no page interaction)
+        # Try WebSocket cache first
         ws_data = await self._parse_ws_quote(symbol)
+
+        # Scrape page for high_limit if a staged page exists for this symbol (highly accurate for circuit monitoring)
+        page_high_limit = 0.0
+        symbol_page = getattr(self, "_symbol_pages", {}).get(symbol.upper(), None)
+        if not symbol_page and self._page and not self._page.is_closed() and "MarketOrder" in self._page.url:
+            try:
+                search_val = await self._page.locator("#searchStock").input_value()
+                if search_val.upper() == symbol.upper():
+                    symbol_page = self._page
+            except Exception:
+                pass
+
+        if symbol_page and not symbol_page.is_closed() and "MarketOrder" in symbol_page.url:
+            try:
+                page_data = await symbol_page.evaluate(
+                    r"""() => {
+                        const parse = v => parseFloat(String(v).replace(/,/g, '')) || 0;
+                        let high_limit = 0;
+                        let ltp = 0;
+                        
+                        const elements = document.querySelectorAll('span, div, h1, h2, h3, h4, h5, h6, label');
+                        for (const el of elements) {
+                            const txt = el.innerText ? el.innerText.trim() : '';
+                            if (txt.includes('Low-High:')) {
+                                const match = txt.match(/Low-High:\s*([\d\.,]+)\s*-\s*([\d\.,]+)/i);
+                                if (match) {
+                                    high_limit = parse(match[2]);
+                                    break;
+                                }
+                            }
+                        }
+                        
+                        const rows = document.querySelectorAll('tr');
+                        for (const row of rows) {
+                            const text = row.innerText.trim();
+                            if (text.includes('D.High') || text.includes('High')) {
+                                const cells = row.querySelectorAll('td');
+                                if (cells.length >= 2) {
+                                    ltp = parse(cells[1].innerText);
+                                    break;
+                                }
+                            }
+                        }
+                        return { high_limit, ltp };
+                    }"""
+                )
+                if page_data:
+                    page_high_limit = page_data.get("high_limit", 0.0)
+                    if page_high_limit > 0.0:
+                        if not hasattr(self, "_cached_high_limit"):
+                            self._cached_high_limit = {}
+                        self._cached_high_limit[symbol.upper()] = page_high_limit
+                    
+                    if ws_data:
+                        ws_data["high_limit"] = max(ws_data.get("high_limit", 0.0), page_high_limit)
+                        if page_data.get("ltp", 0.0) > 0.0:
+                            ws_data["ltp"] = max(ws_data.get("ltp", 0.0), page_data["ltp"])
+            except Exception as exc:
+                logger.debug("failed_to_scrape_order_page_high_limit", symbol=symbol, error=str(exc))
+
         if ws_data:
-            cached_high = getattr(self, "_cached_high_limit", {}).get(symbol.upper(), 0.0)
-            if cached_high > 0.0:
-                ws_data["high_limit"] = cached_high
+            if "high_limit" not in ws_data or ws_data["high_limit"] <= 0.0:
+                cached_high = getattr(self, "_cached_high_limit", {}).get(symbol.upper(), 0.0)
+                if cached_high > 0.0:
+                    ws_data["high_limit"] = cached_high
             return ws_data
 
         # Try scraping from the active order page second
-        if self._page and not self._page.is_closed() and "MarketOrder" in self._page.url:
+        if symbol_page and not symbol_page.is_closed() and "MarketOrder" in symbol_page.url:
             try:
-                data = await self._page.evaluate(
+                data = await symbol_page.evaluate(
                     r"""(sym) => {
                         const searchInput = document.querySelector("#searchStock");
                         if (!searchInput || !searchInput.value.toUpperCase().includes(sym.toUpperCase())) {
@@ -382,15 +446,24 @@ class NaasaBrokerClient(BrokerClient):
                     self._cached_high_limit[symbol.upper()] = data.get("high_limit", 0.0)
 
                     from market_data.circuit import calculate_daily_circuits
-                    prev_close = data.get("prev_close") or data.get("ltp")
-                    circuits = calculate_daily_circuits(prev_close, 15.0)
+                    prev_close = data.get("prev_close") or 0.0
+                    high_limit = data.get("high_limit", 0.0)
+                    
+                    if prev_close > 0:
+                        circuits = calculate_daily_circuits(prev_close, 15.0)
+                        upper_circuit = circuits.upper_circuit
+                        lower_circuit = circuits.lower_circuit
+                    else:
+                        upper_circuit = high_limit
+                        lower_circuit = 0.0
+
                     return {
                         "symbol": symbol.upper(),
                         "ltp": data["ltp"],
                         "prev_close": prev_close,
-                        "upper_circuit": circuits.upper_circuit,
-                        "lower_circuit": circuits.lower_circuit,
-                        "high_limit": data.get("high_limit", 0.0),
+                        "upper_circuit": upper_circuit,
+                        "lower_circuit": lower_circuit,
+                        "high_limit": high_limit,
                         "source": "naasa_order_page_scrape",
                         "timestamp": datetime.now(timezone.utc).isoformat(),
                     }
@@ -568,7 +641,7 @@ class NaasaBrokerClient(BrokerClient):
 
         from market_data.circuit import calculate_daily_circuits
 
-        prev_close = row.get("prev_close") or row.get("ltp", 0)
+        prev_close = row.get("prev_close") or 0.0
         circuits = calculate_daily_circuits(prev_close, 15.0)
 
         return {
@@ -606,6 +679,7 @@ class NaasaBrokerClient(BrokerClient):
                     "ask_quantity": int(data.get("askQty", data.get("ask_quantity", 0))),
                     "volume": int(data.get("volume", data.get("tradedQty", 0))),
                     "upper_circuit": float(data.get("upperCircuit", data.get("upper_circuit", 0))),
+                    "prev_close": float(data.get("previousClose", data.get("prevClose", data.get("prev_close", 0.0)))),
                     "source": "naasa_x_network",
                     "timestamp": datetime.now(timezone.utc).isoformat(),
                 }
@@ -624,48 +698,93 @@ class NaasaBrokerClient(BrokerClient):
         if not self._page:
             raise BrokerError("Browser not initialized")
 
-        logger.info("naasa_staging_order", symbol=symbol, quantity=quantity, price=price)
+        sym = symbol.upper()
+        if not hasattr(self, "_symbol_pages"):
+            self._symbol_pages = {}
+
+        if sym not in self._symbol_pages:
+            if not self._symbol_pages:
+                self._symbol_pages[sym] = self._page
+                page = self._page
+                logger.info("allocated_main_page_for_symbol", symbol=sym)
+            else:
+                try:
+                    page = await self._context.new_page()
+                    await page.route("**/*", self._route_filter)
+                    page.on("request", self.network.on_request)
+                    page.on("response", lambda r: asyncio.create_task(self.network.on_response(r)))
+                    page.on("websocket", self.network.on_websocket)
+                    self._symbol_pages[sym] = page
+                    logger.info("allocated_new_tab_for_symbol", symbol=sym)
+                except Exception as exc:
+                    logger.error("failed_to_create_new_tab_for_symbol", symbol=sym, error=str(exc))
+                    page = self._page
+        else:
+            page = self._symbol_pages[sym]
+
+        logger.info("naasa_staging_order", symbol=sym, quantity=quantity, price=price)
         try:
-            await self._navigate_to_order_page()
+            order_url = self._order_config.get(
+                "direct_url",
+                self._order_url or "https://x.naasasecurities.com.np/MarketOrder/Order",
+            )
+            if "MarketOrder" in page.url:
+                reset_sel = self.selectors.get("reset_button", "#btnReset")
+                try:
+                    if await page.locator(reset_sel).count() > 0:
+                        await page.click(reset_sel)
+                        await asyncio.sleep(0.3)
+                except Exception:
+                    pass
+            else:
+                await page.goto(order_url, wait_until="domcontentloaded")
 
             symbol_sel = self.selectors.get("order_symbol", "#searchStock")
             qty_sel = self.selectors.get("order_quantity", "#OrdertxtQty")
             price_sel = self.selectors.get("order_price", "#OrdertxtPrice")
 
-            await self._page.wait_for_selector(symbol_sel, timeout=self.timeout)
+            await page.wait_for_selector(symbol_sel, timeout=self.timeout)
 
             # Buy-only: always use buy tab
             buy_tab = self.selectors.get("buy_side_tab", "a.buy_frm_order")
-            if await self._page.locator(buy_tab).count() > 0:
-                await self._page.click(buy_tab)
+            if await page.locator(buy_tab).count() > 0:
+                await page.click(buy_tab)
 
             # Enter scrip — clear field and type reliably to trigger autocomplete
-            await self._page.locator(symbol_sel).click()
-            await self._page.locator(symbol_sel).press("Control+A")
-            await self._page.locator(symbol_sel).press("Backspace")
+            await page.locator(symbol_sel).click()
+            await page.locator(symbol_sel).press("Control+A")
+            await page.locator(symbol_sel).press("Backspace")
             await asyncio.sleep(0.2)
-            await self._page.locator(symbol_sel).type(symbol.upper(), delay=120)
+            await page.locator(symbol_sel).type(sym, delay=120)
             await asyncio.sleep(1.2)
 
             dropdown_sel = self._order_config.get("symbol_dropdown_item", ".ui-autocomplete li:first-child, .autocomplete-item:first-child, li.ui-menu-item:first-child")
             try:
-                await self._page.wait_for_selector(dropdown_sel, timeout=3000)
-                await self._page.click(dropdown_sel)
+                await page.wait_for_selector(dropdown_sel, timeout=3000)
+                await page.click(dropdown_sel)
             except Exception:
-                await self._page.press(symbol_sel, "Enter")
+                await page.press(symbol_sel, "ArrowDown")
+                await asyncio.sleep(0.2)
+                await page.press(symbol_sel, "Enter")
             await asyncio.sleep(0.5)
 
-            await self._page.fill(qty_sel, str(quantity))
+            await page.fill(qty_sel, str(quantity))
 
             # Select limit order type (LMT) and enter price (using force=True as the input element may be styled/hidden)
-            await self._page.locator(self.selectors.get("order_type_limit", "#chkOrderTypeLMT")).click(force=True)
-            await self._page.fill(price_sel, str(price))
+            await page.locator(self.selectors.get("order_type_limit", "#chkOrderTypeLMT")).click(force=True)
+            await page.fill(price_sel, str(price))
 
-            logger.info("naasa_order_staged_successfully", symbol=symbol, price=price)
+            logger.info("naasa_order_staged_successfully", symbol=sym, price=price)
             return True
         except Exception as exc:
-            await self._capture_screenshot(f"naasa_stage_error_{symbol}")
-            logger.error("naasa_order_staging_failed", symbol=symbol, error=str(exc))
+            timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+            path = self._screenshot_dir / f"naasa_stage_error_{sym}_{timestamp}.png"
+            try:
+                await page.screenshot(path=str(path), full_page=True)
+                logger.info("screenshot_captured", path=str(path))
+            except Exception:
+                pass
+            logger.error("naasa_order_staging_failed", symbol=sym, error=str(exc))
             return False
 
     async def fast_trigger_buy(
@@ -694,7 +813,8 @@ class NaasaBrokerClient(BrokerClient):
                 "order_id": f"SIM-{datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S')}"
             }
 
-        if not self._page or self._page.is_closed():
+        symbol_page = getattr(self, "_symbol_pages", {}).get(symbol.upper(), self._page)
+        if not symbol_page or symbol_page.is_closed():
             return {"success": False, "error": "Browser not initialized or closed"}
 
         if kill_switch:
@@ -704,9 +824,9 @@ class NaasaBrokerClient(BrokerClient):
         try:
             # 1. Extract dynamic variables from page context
             if not scrip_id:
-                scrip_id = await self._page.evaluate("Selected_scrip")
+                scrip_id = await symbol_page.evaluate("Selected_scrip")
             if not exchange:
-                exchange = await self._page.evaluate("Selected_Exchange")
+                exchange = await symbol_page.evaluate("Selected_Exchange")
             
             if not scrip_id or not exchange:
                 logger.warning("missing_dynamic_scrip_id_or_exchange", scrip_id=scrip_id, exchange=exchange)
@@ -719,7 +839,7 @@ class NaasaBrokerClient(BrokerClient):
 
             # 3. Get the user agent from browser to match headers
             if not user_agent:
-                user_agent = await self._page.evaluate("navigator.userAgent")
+                user_agent = await symbol_page.evaluate("navigator.userAgent")
 
             # 4. Build headers
             headers = {

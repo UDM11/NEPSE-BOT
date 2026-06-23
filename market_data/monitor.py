@@ -78,7 +78,7 @@ class MarketMonitor:
                     lower = math.ceil(item.prev_close * (1 - item.circuit_percentage / 100.0) * 10) / 10
                 self._latest_ticks[symbol.upper()] = MarketTick(
                     symbol=symbol.upper(),
-                    ltp=0.0,
+                    ltp=item.prev_close,
                     upper_circuit=upper,
                     lower_circuit=lower,
                     prev_close=item.prev_close,
@@ -118,7 +118,7 @@ class MarketMonitor:
         # Enrich with watchlist circuit prices (dynamic 15% daily band for IPOs)
         watchlist_item = self.watchlist.get(symbol)
         if watchlist_item:
-            prev_close = tick.prev_close or watchlist_item.prev_close
+            prev_close = watchlist_item.prev_close if watchlist_item.prev_close > 0 else tick.prev_close
             if watchlist_item.use_dynamic_circuit and prev_close > 0:
                 circuits = calculate_daily_circuits(
                     prev_close, watchlist_item.circuit_percentage
@@ -223,3 +223,11 @@ class MarketMonitor:
         else:
             self._circuit_hit_symbols.clear()
             self._circuit_hit_date.clear()
+
+    async def refresh_symbols(self) -> None:
+        """Refresh monitored symbols from the watchlist without downtime if possible, or stop/restart."""
+        if not self._running:
+            return
+        logger.info("market_monitor_refreshing_symbols")
+        await self.stop()
+        await self.start()
