@@ -432,6 +432,14 @@ class NepseTradingBot:
                                 if reason == "Kill switch active":
                                     logger.warning("fast_trigger_stopped_due_to_kill_switch", symbol=symbol)
                                     break
+                                # Self-healing: if session or cookie error occurs, refresh tokens from the active browser context
+                                if any(x in (str(reason) + " " + str(message)).lower() for x in ("cookie", "session", "auth", "unauthorized", "login", "expired")):
+                                    try:
+                                        playwright_cookies = await self.broker._context.cookies()
+                                        cookies = {c["name"]: c["value"] for c in playwright_cookies if "naasasecurities.com.np" in c["domain"]}
+                                        logger.info("dynamically_refreshed_expired_cookies_during_trigger_loop", symbol=symbol)
+                                    except Exception as e:
+                                        logger.warning("failed_to_dynamically_refresh_cookies", error=str(e))
                         # Constant high-frequency sleep (50ms) to ensure maximum speed once the 8% price trigger is hit
                         await asyncio.sleep(0.05)
                     

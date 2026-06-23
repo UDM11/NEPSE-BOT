@@ -44,6 +44,7 @@ class NaasaBrokerClient(BrokerClient):
         self._fast_buy_click_time = 0.0
         self._market_page_lock = asyncio.Lock()
         self._symbol_pages = {}
+        self._last_page_scrape_time: dict[str, datetime] = {}
 
     async def login(self) -> bool:
         """Login to Naasa X via Keycloak email/password form."""
@@ -306,8 +307,11 @@ class NaasaBrokerClient(BrokerClient):
         # Try WebSocket cache first
         ws_data = await self._parse_ws_quote(symbol)
 
-        # Scrape page for high_limit if a staged page exists for this symbol (highly accurate for circuit monitoring)
-        page_high_limit = 0.0
+        # Determine if we should perform a browser page scrape (throttled to 1.5 seconds)
+        now = datetime.now(timezone.utc)
+        last_scrape = self._last_page_scrape_time.get(symbol.upper(), datetime.min.replace(tzinfo=timezone.utc))
+        should_scrape = (now - last_scrape).total_seconds() >= 1.5
+
         symbol_page = getattr(self, "_symbol_pages", {}).get(symbol.upper(), None)
         if not symbol_page and self._page and not self._page.is_closed() and "MarketOrder" in self._page.url:
             try:
@@ -317,63 +321,65 @@ class NaasaBrokerClient(BrokerClient):
             except Exception:
                 pass
 
-        if symbol_page and not symbol_page.is_closed() and "MarketOrder" in symbol_page.url:
-            try:
-                page_data = await symbol_page.evaluate(
-                    r"""() => {
-                        const parse = v => parseFloat(String(v).replace(/,/g, '')) || 0;
-                        let high_limit = 0;
-                        let ltp = 0;
-                        
-                        const elements = document.querySelectorAll('span, div, h1, h2, h3, h4, h5, h6, label');
-                        for (const el of elements) {
-                            const txt = el.innerText ? el.innerText.trim() : '';
-                            if (txt.includes('Low-High:')) {
-                                const match = txt.match(/Low-High:\s*([\d\.,]+)\s*-\s*([\d\.,]+)/i);
-                                if (match) {
-                                    high_limit = parse(match[2]);
-                                    break;
+        if ws_data:
+            # If we have WebSocket data, only scrape high_limit from the page occasionally
+            if should_scrape and symbol_page and not symbol_page.is_closed() and "MarketOrder" in symbol_page.url:
+                self._last_page_scrape_time[symbol.upper()] = now
+                try:
+                    page_data = await symbol_page.evaluate(
+                        r"""() => {
+                            const parse = v => parseFloat(String(v).replace(/,/g, '')) || 0;
+                            let high_limit = 0;
+                            let ltp = 0;
+                            
+                            const elements = document.querySelectorAll('span, div, h1, h2, h3, h4, h5, h6, label');
+                            for (const el of elements) {
+                                const txt = el.innerText ? el.innerText.trim() : '';
+                                if (txt.includes('Low-High:')) {
+                                    const match = txt.match(/Low-High:\s*([\d\.,]+)\s*-\s*([\d\.,]+)/i);
+                                    if (match) {
+                                        high_limit = parse(match[2]);
+                                        break;
+                                    }
                                 }
                             }
-                        }
-                        
-                        const rows = document.querySelectorAll('tr');
-                        for (const row of rows) {
-                            const text = row.innerText.trim();
-                            if (text.includes('D.High') || text.includes('High')) {
-                                const cells = row.querySelectorAll('td');
-                                if (cells.length >= 2) {
-                                    ltp = parse(cells[1].innerText);
-                                    break;
+                            
+                            const rows = document.querySelectorAll('tr');
+                            for (const row of rows) {
+                                const text = row.innerText.trim();
+                                if (text.includes('D.High') || text.includes('High')) {
+                                    const cells = row.querySelectorAll('td');
+                                    if (cells.length >= 2) {
+                                        ltp = parse(cells[1].innerText);
+                                        break;
+                                    }
                                 }
                             }
-                        }
-                        return { high_limit, ltp };
-                    }"""
-                )
-                if page_data:
-                    page_high_limit = page_data.get("high_limit", 0.0)
-                    if page_high_limit > 0.0:
-                        if not hasattr(self, "_cached_high_limit"):
-                            self._cached_high_limit = {}
-                        self._cached_high_limit[symbol.upper()] = page_high_limit
-                    
-                    if ws_data:
-                        ws_data["high_limit"] = max(ws_data.get("high_limit", 0.0), page_high_limit)
+                            return { high_limit, ltp };
+                        }"""
+                    )
+                    if page_data:
+                        page_high_limit = page_data.get("high_limit", 0.0)
+                        if page_high_limit > 0.0:
+                            if not hasattr(self, "_cached_high_limit"):
+                                self._cached_high_limit = {}
+                            self._cached_high_limit[symbol.upper()] = page_high_limit
+                            ws_data["high_limit"] = max(ws_data.get("high_limit", 0.0), page_high_limit)
+                        
                         if page_data.get("ltp", 0.0) > 0.0:
                             ws_data["ltp"] = max(ws_data.get("ltp", 0.0), page_data["ltp"])
-            except Exception as exc:
-                logger.debug("failed_to_scrape_order_page_high_limit", symbol=symbol, error=str(exc))
+                except Exception as exc:
+                    logger.debug("failed_to_scrape_order_page_high_limit", symbol=symbol, error=str(exc))
 
-        if ws_data:
             if "high_limit" not in ws_data or ws_data["high_limit"] <= 0.0:
                 cached_high = getattr(self, "_cached_high_limit", {}).get(symbol.upper(), 0.0)
                 if cached_high > 0.0:
                     ws_data["high_limit"] = cached_high
             return ws_data
 
-        # Try scraping from the active order page second
-        if symbol_page and not symbol_page.is_closed() and "MarketOrder" in symbol_page.url:
+        # Try scraping from the active order page second (only if we should scrape)
+        if should_scrape and symbol_page and not symbol_page.is_closed() and "MarketOrder" in symbol_page.url:
+            self._last_page_scrape_time[symbol.upper()] = now
             try:
                 data = await symbol_page.evaluate(
                     r"""(sym) => {
