@@ -456,11 +456,12 @@ class NepseTradingBot:
             
             # Precise polling sleep intervals
             if staged and not triggered:
-                is_critical_window = (
-                    (now_nepal.hour == 10 and now_nepal.minute == 59) or
-                    (now_nepal.hour == 11 and now_nepal.minute < 5) or
-                    (self.settings.app_env.lower() == "development")
+                is_market_hours = (
+                    (now_nepal.hour == 10 and now_nepal.minute >= 55) or
+                    (11 <= now_nepal.hour < 15) or
+                    (now_nepal.hour == 15 and now_nepal.minute <= 5)
                 )
+                is_critical_window = is_market_hours or (self.settings.app_env.lower() == "development")
                 if is_critical_window:
                     if self.market_monitor:
                         self.market_monitor.poll_interval = 0.05 # Boost poll interval to 50ms

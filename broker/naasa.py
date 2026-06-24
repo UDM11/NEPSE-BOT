@@ -262,6 +262,9 @@ class NaasaBrokerClient(BrokerClient):
         if self.simulate:
             return
 
+        # Disable WebSocket on the main order page to prevent WebSocket fights
+        await self._page.add_init_script("delete window.WebSocket;")
+
         # Second page for market data — keeps order page untouched during monitoring
         self._market_page = await self._context.new_page()
         await self._market_page.route("**/*", self._route_filter)
@@ -668,6 +671,11 @@ class NaasaBrokerClient(BrokerClient):
         """Look up symbol in real-time parsed WebSocket cache."""
         cached = getattr(self.network, "ws_cache", {}).get(symbol.upper())
         if cached:
+            # Check quote staleness: if older than 3.0 seconds, treat as stale
+            age = (datetime.now(timezone.utc) - cached["timestamp"]).total_seconds()
+            if age > 3.0:
+                logger.debug("stale_websocket_cache_discarded", symbol=symbol, age=age)
+                return None
             data = cached["data"]
             parsed = self._parse_naasa_quote(symbol, data)
             if parsed:
@@ -716,6 +724,8 @@ class NaasaBrokerClient(BrokerClient):
             else:
                 try:
                     page = await self._context.new_page()
+                    # Disable WebSocket on additional staging tabs to prevent WebSocket fights
+                    await page.add_init_script("delete window.WebSocket;")
                     await page.route("**/*", self._route_filter)
                     page.on("request", self.network.on_request)
                     page.on("response", lambda r: asyncio.create_task(self.network.on_response(r)))
