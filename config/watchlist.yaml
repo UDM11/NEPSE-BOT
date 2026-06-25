@@ -1,6 +1,6 @@
 symbols:
 - symbol: TPKHL
-  prev_close: 456.2
+  prev_close: 524.6
   quantity: 10
   circuit_percentage: 15.0
   use_dynamic_circuit: true

@@ -71,6 +71,14 @@ class EventBus:
             self._handlers[event_type] = []
         self._handlers[event_type].append(handler)
 
+    def unsubscribe(self, event_type: EventType, handler: EventHandler) -> None:
+        """Unsubscribe handler from specific event type."""
+        if event_type in self._handlers:
+            try:
+                self._handlers[event_type].remove(handler)
+            except ValueError:
+                pass
+
     def subscribe_all(self, handler: EventHandler) -> None:
         """Register handler for all events."""
         self._wildcard_handlers.append(handler)

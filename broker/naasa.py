@@ -591,28 +591,41 @@ class NaasaBrokerClient(BrokerClient):
                     except Exception as exc:
                         logger.warning("failed_to_filter_market_watch_table", symbol=symbol, error=str(exc))
 
-                    # Fallback to custom watchlist search (#txtAddTicker) only if #searchInput is not found or failed
                     if not row:
                         search_sel = self.selectors.get("watchlist_search", "#txtAddTicker")
+                        add_ticker_btn = "a.ad_tck"
                         try:
-                            if await page.locator(search_sel).count() > 0:
-                                logger.info("symbol_not_found_in_market_watch_attempting_to_add", symbol=symbol)
-                                await page.locator(search_sel).click(timeout=2000)
-                                await page.locator(search_sel).press("Control+A", timeout=1000)
-                                await page.locator(search_sel).press("Backspace", timeout=1000)
-                                await asyncio.sleep(0.2)
-                                await page.locator(search_sel).type(symbol.upper(), delay=100, timeout=2000)
-                                await asyncio.sleep(1.0)
+                            # 1. Click the '+' button to open the Manage Ticker modal
+                            if await page.locator(add_ticker_btn).count() > 0:
+                                logger.info("opening_manage_ticker_modal", symbol=symbol)
+                                await page.click(add_ticker_btn, timeout=2000)
+                                await asyncio.sleep(0.5)
 
-                                # Click autocomplete suggestion if present, otherwise press Enter
-                                dropdown_sel = self._order_config.get("symbol_dropdown_item", ".ui-autocomplete li:first-child, .autocomplete-item:first-child, li.ui-menu-item:first-child")
-                                try:
-                                    if await page.locator(dropdown_sel).count() > 0:
-                                        await page.click(dropdown_sel, timeout=1000)
-                                    else:
-                                        await page.press(search_sel, "Enter", timeout=1000)
-                                except Exception:
-                                    await page.press(search_sel, "Enter", timeout=1000)
+                            # 2. Wait for the search input to be visible and type symbol
+                            await page.wait_for_selector(search_sel, timeout=3000)
+                            await page.locator(search_sel).click(force=True, timeout=2000)
+                            await page.locator(search_sel).press("Control+A", timeout=1000)
+                            await page.locator(search_sel).press("Backspace", timeout=1000)
+                            await asyncio.sleep(0.2)
+                            await page.locator(search_sel).type(symbol.upper(), delay=100, timeout=2000)
+                            await asyncio.sleep(1.2)
+
+                            # 3. Click the '+' sign in the autocomplete dropdown
+                            dropdown_plus = "a.plus_icn.searchTkr, .ui-menu-item a.plus_icn"
+                            try:
+                                await page.wait_for_selector(dropdown_plus, timeout=3000)
+                                await page.click(dropdown_plus, timeout=2000)
+                                logger.info("clicked_add_plus_in_dropdown", symbol=symbol)
+                                await asyncio.sleep(0.5)
+                            except Exception:
+                                # Fallback: press Enter
+                                await page.press(search_sel, "Enter", timeout=1000)
+                            
+                            # 4. Click the Save button in the modal to apply changes
+                            save_btn = "input#btnSave"
+                            if await page.locator(save_btn).count() > 0:
+                                await page.click(save_btn, timeout=2000)
+                                logger.info("clicked_save_watchlist_button", symbol=symbol)
                                 await asyncio.sleep(1.5)
 
                                 # Re-evaluate row after adding

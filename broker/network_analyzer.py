@@ -57,7 +57,7 @@ class NetworkAnalyzer:
     ]
     AUTH_HEADER_PATTERNS = ["authorization", "x-auth", "token", "bearer", "session"]
 
-    def __init__(self, report_dir: Path | None = None):
+    def __init__(self, report_dir: Path | None = None, event_bus: Any = None):
         self.report_dir = report_dir or PROJECT_ROOT / "logs" / "network_reports"
         self.report_dir.mkdir(parents=True, exist_ok=True)
         self._captured: list[CapturedRequest] = []
@@ -65,6 +65,7 @@ class NetworkAnalyzer:
         self._ws_messages: list[dict] = []
         self._auth_tokens: dict[str, str] = {}
         self.ws_cache: dict[str, dict] = {}
+        self.event_bus = event_bus
 
     def on_request(self, request) -> None:
         """Playwright request handler."""
@@ -172,6 +173,23 @@ class NetworkAnalyzer:
         ws.on("framesent", on_frame_sent)
         ws.on("framereceived", on_frame_received)
 
+    def _parse_naasa_quote(self, symbol: str, data: dict) -> dict[str, Any] | None:
+        """Best-effort parse of Naasa X market data JSON."""
+        for key in ("ltp", "lastTradedPrice", "last_price", "price"):
+            if key in data:
+                return {
+                    "symbol": symbol,
+                    "ltp": float(data[key]),
+                    "bid_quantity": int(data.get("bidQty", data.get("bid_quantity", 0))),
+                    "ask_quantity": int(data.get("askQty", data.get("ask_quantity", 0))),
+                    "volume": int(data.get("volume", data.get("tradedQty", 0))),
+                    "upper_circuit": float(data.get("upperCircuit", data.get("upper_circuit", 0))),
+                    "prev_close": float(data.get("previousClose", data.get("prevClose", data.get("prev_close", 0.0)))),
+                    "source": "naasa_x_network",
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                }
+        return None
+
     def _cache_json_msg(self, data: Any) -> None:
         """Recursively search and cache JSON messages containing symbol information."""
         if isinstance(data, dict):
@@ -186,6 +204,23 @@ class NetworkAnalyzer:
                     "timestamp": datetime.now(timezone.utc),
                 }
                 logger.debug("websocket_message_cached", symbol=symbol, data=data)
+                
+                # Direct event-driven latency upgrade
+                if self.event_bus:
+                    parsed = self._parse_naasa_quote(symbol, data)
+                    if parsed:
+                        import asyncio
+                        from core.events import Event, EventType
+                        event = Event(
+                            type=EventType.MARKET_DATA_UPDATE,
+                            source="network_analyzer",
+                            data=parsed,
+                        )
+                        try:
+                            loop = asyncio.get_running_loop()
+                            loop.create_task(self.event_bus.publish(event))
+                        except Exception as e:
+                            logger.warning("failed_to_publish_ws_tick_event", symbol=symbol, error=str(e))
         elif isinstance(data, list):
             for item in data:
                 self._cache_json_msg(item)

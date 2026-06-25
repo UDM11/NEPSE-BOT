@@ -54,7 +54,7 @@ class BrokerClient:
         self.selectors = broker_config.get("selectors", {})
 
         self.session = SessionManager(event_bus)
-        self.network = NetworkAnalyzer()
+        self.network = NetworkAnalyzer(event_bus=event_bus)
         self._playwright: Playwright | None = None
         self._browser: Browser | None = None
         self._context: BrowserContext | None = None
