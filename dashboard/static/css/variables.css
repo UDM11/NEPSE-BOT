@@ -1,0 +1,96 @@
+:root {
+    --bg-base: #030611;
+    --bg-surface: rgba(13, 20, 38, 0.7);
+    --bg-surface-hover: rgba(22, 32, 59, 0.85);
+    --bg-panel: rgba(8, 12, 26, 0.95);
+    --border-color: rgba(255, 255, 255, 0.06);
+    --border-focus: rgba(0, 240, 255, 0.4);
+    
+    --text-primary: #f8fafc;
+    --text-secondary: #94a3b8;
+    --text-muted: #475569;
+    
+    --accent-cyan: #00f0ff;
+    --accent-emerald: #10b981;
+    --accent-rose: #f43f5e;
+    --accent-amber: #f59e0b;
+    --accent-indigo: #6366f1;
+    
+    --glow-cyan: 0 0 20px rgba(0, 240, 255, 0.25);
+    --glow-emerald: 0 0 20px rgba(16, 185, 129, 0.25);
+    --glow-rose: 0 0 20px rgba(244, 63, 94, 0.25);
+    --glow-amber: 0 0 20px rgba(245, 94, 11, 0.25);
+    
+    --font-sans: 'Outfit', sans-serif;
+    --font-mono: 'JetBrains Mono', monospace;
+    --transition-smooth: 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+body {
+    font-family: var(--font-sans);
+    background: radial-gradient(circle at 50% 0%, #0d1a33 0%, var(--bg-base) 70%);
+    color: var(--text-primary);
+    min-height: 100vh;
+    overflow-x: hidden;
+    line-height: 1.5;
+}
+
+/* Animations */
+@keyframes pulse {
+    0% { opacity: 0.6; }
+    50% { opacity: 1; }
+    100% { opacity: 0.6; }
+}
+
+@keyframes flashUp {
+    0% { background-color: rgba(16, 185, 129, 0.35); }
+    100% { background-color: transparent; }
+}
+
+@keyframes flashDown {
+    0% { background-color: rgba(244, 63, 94, 0.35); }
+    100% { background-color: transparent; }
+}
+
+@keyframes flashInfo {
+    0% { background-color: rgba(0, 240, 255, 0.25); }
+    100% { background-color: transparent; }
+}
+
+@keyframes slideIn {
+    from { transform: translateX(120%); opacity: 0; }
+    to { transform: translateX(0); opacity: 1; }
+}
+
+@keyframes fadeIn {
+    from { opacity: 0; transform: translateY(5px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes breathe {
+    0% { box-shadow: 0 0 15px rgba(0, 240, 255, 0.3); }
+    50% { box-shadow: 0 0 28px rgba(0, 240, 255, 0.55); }
+    100% { box-shadow: 0 0 15px rgba(0, 240, 255, 0.3); }
+}
+
+/* Custom Scrollbar */
+::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+}
+::-webkit-scrollbar-track {
+    background: rgba(0, 0, 0, 0.15);
+}
+::-webkit-scrollbar-thumb {
+    background: var(--border-color);
+    border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+    background: var(--text-muted);
+}

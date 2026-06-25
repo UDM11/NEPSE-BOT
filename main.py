@@ -7,7 +7,7 @@ import signal
 import sys
 from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import uvicorn
 
@@ -25,6 +25,9 @@ from market_data.watchlist import WatchlistManager
 from order_engine.executor import OrderExecutor
 from risk_management.manager import RiskManager
 from strategies.engine import StrategyEngine
+
+if TYPE_CHECKING:
+    from database.models import OrderStatus
 
 logger = get_logger("main")
 
@@ -340,11 +343,27 @@ class NepseTradingBot:
                                     if staged:
                                         self.staged_flag = True
                                         logger.info("ipo_staging_form_staged_successfully", symbol=symbol)
+                                        from database.models import OrderStatus
+                                        await self._log_ipo_order(
+                                            symbol=symbol,
+                                            quantity=quantity,
+                                            price=target_price,
+                                            status=OrderStatus.PENDING,
+                                            order_id=f"STAGED-{symbol}",
+                                        )
                                 else:
                                     logger.error("ipo_staging_form_stage_failed", symbol=symbol)
                         else:
                             logger.warning("broker_does_not_support_staging")
                             staged = True # don't loop endlessly
+                            from database.models import OrderStatus
+                            await self._log_ipo_order(
+                                symbol=symbol,
+                                quantity=quantity,
+                                price=target_price,
+                                status=OrderStatus.PENDING,
+                                order_id=f"STAGED-{symbol}",
+                            )
 
                 # Get live price from EventBus queue or fall back to MarketMonitor cache
                 current_price = 0.0
@@ -394,6 +413,8 @@ class NepseTradingBot:
                     should_trigger = is_within_price_band or is_high_limit_reached or is_dev
 
                     if should_trigger:
+                        import time
+                        trigger_start_time = time.perf_counter()
                         logger.critical(
                             "ipo_staging_preemptive_trigger_met",
                             symbol=symbol,
@@ -428,10 +449,12 @@ class NepseTradingBot:
                                 )
                                 if res.get("success"):
                                     success = True
+                                    latency_ms = (time.perf_counter() - trigger_start_time) * 1000
                                     logger.critical(
                                         "ipo_staging_order_executed_successfully",
                                         symbol=symbol,
                                         result=res,
+                                        latency_ms=latency_ms,
                                     )
                                     await self._log_ipo_order(
                                         symbol=symbol,
@@ -440,6 +463,8 @@ class NepseTradingBot:
                                         success=True,
                                         broker_order_id=res.get("order_id"),
                                         error_msg=res.get("message"),
+                                        latency_ms=latency_ms,
+                                        order_id=f"STAGED-{symbol}",
                                     )
                                     break
                                 else:
@@ -463,12 +488,15 @@ class NepseTradingBot:
                         
                         if not success:
                             logger.error("ipo_staging_fast_trigger_loop_exhausted_without_success", symbol=symbol)
+                            latency_ms = (time.perf_counter() - trigger_start_time) * 1000 if 'trigger_start_time' in locals() else None
                             await self._log_ipo_order(
                                 symbol=symbol,
                                 quantity=quantity,
                                 price=target_price,
                                 success=False,
                                 error_msg=last_error_msg or "Fast trigger loop exhausted without success",
+                                latency_ms=latency_ms,
+                                order_id=f"STAGED-{symbol}",
                             )
                             triggered = False                  # Reset triggered so we can check again on the next price tick
                 
@@ -490,73 +518,111 @@ class NepseTradingBot:
         symbol: str,
         quantity: int,
         price: float,
-        success: bool,
+        success: bool | None = None,
         broker_order_id: str | None = None,
         error_msg: str | None = None,
+        latency_ms: float | None = None,
+        status: "OrderStatus | None" = None,
+        order_id: str | None = None,
     ) -> None:
         """Log IPO fast trigger order execution results to the database and event bus."""
         from database.models import Order, OrderStatus
         from uuid import uuid4
         from datetime import datetime, timezone
 
-        order_id = str(uuid4())
-        status = OrderStatus.EXECUTED if success else OrderStatus.FAILED
+        if order_id is None:
+            order_id = str(uuid4())
+
+        if status is None:
+            status = OrderStatus.EXECUTED if success else OrderStatus.FAILED
 
         if self._session_factory:
             async with self._session_factory() as session:
                 try:
                     db_repo = DatabaseRepository(session)
-                    await db_repo.create_order(
-                        Order(
-                            id=order_id,
-                            symbol=symbol,
-                            side="buy",
-                            order_type="limit",
-                            quantity=quantity,
-                            price=price,
+                    existing_order = await db_repo.get_order(order_id)
+                    if existing_order:
+                        await db_repo.update_order(
+                            order_id,
                             status=status,
                             broker_order_id=broker_order_id,
-                            strategy_name="ipo_daily_circuit",
                             error_message=error_msg,
-                            executed_at=datetime.now(timezone.utc) if success else None,
+                            executed_at=datetime.now(timezone.utc) if status == OrderStatus.EXECUTED else (None if status == OrderStatus.PENDING else existing_order.executed_at),
+                            latency_ms=latency_ms,
                         )
-                    )
-                    logger.info("logged_ipo_order_to_db", symbol=symbol, order_id=order_id, success=success)
+                        logger.info("updated_ipo_order_in_db", symbol=symbol, order_id=order_id, status=status)
+                    else:
+                        await db_repo.create_order(
+                             Order(
+                                id=order_id,
+                                symbol=symbol,
+                                side="buy",
+                                order_type="limit",
+                                quantity=quantity,
+                                price=price,
+                                status=status,
+                                broker_order_id=broker_order_id,
+                                strategy_name="ipo_daily_circuit",
+                                error_message=error_msg,
+                                executed_at=datetime.now(timezone.utc) if status == OrderStatus.EXECUTED else None,
+                                latency_ms=latency_ms,
+                            )
+                        )
+                        logger.info("logged_new_ipo_order_to_db", symbol=symbol, order_id=order_id, status=status)
                 except Exception as e:
                     logger.error("failed_to_log_ipo_order_to_db", symbol=symbol, error=str(e))
 
-        if self.risk_manager:
+        if success is not None:
+            if self.risk_manager:
+                if success:
+                    self.risk_manager.state.orders_today[symbol] = (
+                        self.risk_manager.state.orders_today.get(symbol, 0) + 1
+                    )
+                    self.risk_manager.record_success()
+                else:
+                    self.risk_manager.record_failure()
+
             if success:
-                self.risk_manager.state.orders_today[symbol] = (
-                    self.risk_manager.state.orders_today.get(symbol, 0) + 1
-                )
-                self.risk_manager.record_success()
-            else:
-                self.risk_manager.record_failure()
+                metrics.increment("orders_executed")
 
-        if success:
-            metrics.increment("orders_executed")
-
-        event_type = EventType.ORDER_EXECUTED if success else EventType.ORDER_FAILED
-        try:
-            await self.event_bus.publish(
-                Event(
-                    type=event_type,
-                    source="ipo_staging_orchestrator",
-                    data={
-                        "order_id": order_id,
-                        "symbol": symbol,
-                        "side": "buy",
-                        "quantity": quantity,
-                        "price": price,
-                        "success": success,
-                        "broker_order_id": broker_order_id,
-                        "error": error_msg,
-                    },
+            event_type = EventType.ORDER_EXECUTED if success else EventType.ORDER_FAILED
+            try:
+                await self.event_bus.publish(
+                    Event(
+                        type=event_type,
+                        source="ipo_staging_orchestrator",
+                        data={
+                            "order_id": order_id,
+                            "symbol": symbol,
+                            "side": "buy",
+                            "quantity": quantity,
+                            "price": price,
+                            "success": success,
+                            "broker_order_id": broker_order_id,
+                            "error": error_msg,
+                        },
+                    )
                 )
-            )
-        except Exception as e:
-            logger.warning("failed_to_publish_ipo_order_event", symbol=symbol, error=str(e))
+            except Exception as e:
+                logger.warning("failed_to_publish_ipo_order_event", symbol=symbol, error=str(e))
+        else:
+            try:
+                await self.event_bus.publish(
+                    Event(
+                        type=EventType.ORDER_SUBMITTED,
+                        source="ipo_staging_orchestrator",
+                        data={
+                            "order_id": order_id,
+                            "symbol": symbol,
+                            "side": "buy",
+                            "quantity": quantity,
+                            "price": price,
+                            "status": "pending",
+                        },
+                    )
+                )
+            except Exception as e:
+                logger.warning("failed_to_publish_ipo_order_pending_event", symbol=symbol, error=str(e))
 
     def get_state(self) -> dict[str, Any]:
         """Return bot state for dashboard."""

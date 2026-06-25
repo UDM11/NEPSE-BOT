@@ -8,2004 +8,331 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+    
     <!-- Chart.js CDN -->
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     
-    <style>
-        :root {
-            --bg-base: #030611;
-            --bg-surface: rgba(13, 20, 38, 0.7);
-            --bg-surface-hover: rgba(22, 32, 59, 0.85);
-            --bg-panel: rgba(8, 12, 26, 0.95);
-            --border-color: rgba(255, 255, 255, 0.06);
-            --border-focus: rgba(0, 240, 255, 0.4);
-            
-            --text-primary: #f8fafc;
-            --text-secondary: #94a3b8;
-            --text-muted: #475569;
-            
-            --accent-cyan: #00f0ff;
-            --accent-emerald: #10b981;
-            --accent-rose: #f43f5e;
-            --accent-amber: #f59e0b;
-            --accent-indigo: #6366f1;
-            
-            --glow-cyan: 0 0 20px rgba(0, 240, 255, 0.25);
-            --glow-emerald: 0 0 20px rgba(16, 185, 129, 0.25);
-            --glow-rose: 0 0 20px rgba(244, 63, 94, 0.25);
-            --glow-amber: 0 0 20px rgba(245, 94, 11, 0.25);
-            
-            --font-sans: 'Outfit', sans-serif;
-            --font-mono: 'JetBrains Mono', monospace;
-            --transition-smooth: 0.25s cubic-bezier(0.4, 0, 0.2, 1);
-        }
-
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }
-
-        body {
-            font-family: var(--font-sans);
-            background: radial-gradient(circle at 50% 0%, #0d1a33 0%, var(--bg-base) 70%);
-            color: var(--text-primary);
-            min-height: 100vh;
-            overflow-x: hidden;
-            line-height: 1.5;
-        }
-
-        /* Glassmorphism Panels */
-        .glass-panel {
-            background: var(--bg-surface);
-            backdrop-filter: blur(20px);
-            -webkit-backdrop-filter: blur(20px);
-            border: 1px solid var(--border-color);
-            border-radius: 16px;
-            padding: 1.5rem;
-            transition: all var(--transition-smooth);
-            box-shadow: 0 10px 30px -15px rgba(0,0,0,0.7);
-        }
-
-        .glass-panel:hover {
-            border-color: rgba(255, 255, 255, 0.1);
-            box-shadow: 0 15px 35px -10px rgba(0,0,0,0.8);
-        }
-
-        .app-container {
-            max-width: 1700px;
-            margin: 0 auto;
-            padding: 1.5rem;
-            display: flex;
-            flex-direction: column;
-            gap: 1.25rem;
-        }
-
-        /* Header design */
-        header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            padding: 1.25rem 1.75rem;
-            background: rgba(8, 12, 28, 0.6);
-            backdrop-filter: blur(20px);
-            border: 1px solid var(--border-color);
-            border-radius: 16px;
-        }
-
-        .logo-section h1 {
-            font-size: 1.75rem;
-            font-weight: 800;
-            background: linear-gradient(90deg, #ffffff 0%, var(--accent-cyan) 50%, var(--accent-indigo) 100%);
-            -webkit-background-clip: text;
-            background-clip: text;
-            -webkit-text-fill-color: transparent;
-            letter-spacing: -0.5px;
-            display: flex;
-            align-items: center;
-            gap: 0.5rem;
-        }
-
-        .logo-section p {
-            font-size: 0.8125rem;
-            color: var(--text-secondary);
-            margin-top: 0.25rem;
-            letter-spacing: 0.5px;
-            text-transform: uppercase;
-        }
-
-        .header-controls {
-            display: flex;
-            align-items: center;
-            gap: 1rem;
-        }
-
-        .sound-toggle-btn {
-            background: rgba(255, 255, 255, 0.04);
-            border: 1px solid var(--border-color);
-            color: var(--text-secondary);
-            padding: 0.5rem;
-            border-radius: 50%;
-            cursor: pointer;
-            width: 38px;
-            height: 38px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            transition: all var(--transition-smooth);
-        }
-
-        .sound-toggle-btn:hover {
-            color: var(--accent-cyan);
-            background: rgba(0, 240, 255, 0.08);
-            border-color: var(--accent-cyan);
-        }
-
-        .sound-toggle-btn.sound-on {
-            color: var(--accent-emerald);
-            background: rgba(16, 185, 129, 0.08);
-            border-color: var(--accent-emerald);
-        }
-
-        /* Status badges */
-        .system-status-badges {
-            display: flex;
-            align-items: center;
-            gap: 0.75rem;
-        }
-
-        .badge {
-            display: inline-flex;
-            align-items: center;
-            gap: 0.5rem;
-            padding: 0.4rem 0.8rem;
-            border-radius: 8px;
-            font-size: 0.75rem;
-            font-weight: 600;
-            letter-spacing: 0.05em;
-            text-transform: uppercase;
-            border: 1px solid transparent;
-            transition: all var(--transition-smooth);
-        }
-
-        .badge-success {
-            background: rgba(16, 185, 129, 0.08);
-            color: var(--accent-emerald);
-            border-color: rgba(16, 185, 129, 0.2);
-            box-shadow: 0 0 12px rgba(16, 185, 129, 0.05);
-        }
-
-        .badge-danger {
-            background: rgba(244, 63, 94, 0.08);
-            color: var(--accent-rose);
-            border-color: rgba(244, 63, 94, 0.2);
-            box-shadow: 0 0 12px rgba(244, 63, 94, 0.05);
-        }
-
-        .badge-info {
-            background: rgba(0, 240, 255, 0.08);
-            color: var(--accent-cyan);
-            border-color: rgba(0, 240, 255, 0.2);
-        }
-
-        .status-dot {
-            width: 8px;
-            height: 8px;
-            border-radius: 50%;
-            display: inline-block;
-            animation: pulse 2s infinite;
-        }
-        
-        .badge-success .status-dot { background: var(--accent-emerald); box-shadow: 0 0 8px var(--accent-emerald); }
-        .badge-danger .status-dot { background: var(--accent-rose); box-shadow: 0 0 8px var(--accent-rose); }
-        .badge-info .status-dot { background: var(--accent-cyan); box-shadow: 0 0 8px var(--accent-cyan); }
-
-        @keyframes pulse {
-            0% { opacity: 0.6; }
-            50% { opacity: 1; }
-            100% { opacity: 0.6; }
-        }
-
-        /* High-Frequency Live Flash Effect */
-        @keyframes flashUp {
-            0% { background-color: rgba(16, 185, 129, 0.35); }
-            100% { background-color: transparent; }
-        }
-        @keyframes flashDown {
-            0% { background-color: rgba(244, 63, 94, 0.35); }
-            100% { background-color: transparent; }
-        }
-        @keyframes flashInfo {
-            0% { background-color: rgba(0, 240, 255, 0.25); }
-            100% { background-color: transparent; }
-        }
-        .flash-up {
-            animation: flashUp 0.8s cubic-bezier(0.1, 0.8, 0.3, 1) forwards;
-        }
-        .flash-down {
-            animation: flashDown 0.8s cubic-bezier(0.1, 0.8, 0.3, 1) forwards;
-        }
-        .flash-info {
-            animation: flashInfo 0.8s cubic-bezier(0.1, 0.8, 0.3, 1) forwards;
-        }
-        .price-cell, .volume-cell, .depth-cell {
-            transition: background-color 0.4s ease;
-            border-radius: 4px;
-        }
-
-        /* Stats Grid */
-        .stats-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-            gap: 1rem;
-        }
-
-        .stat-card {
-            display: flex;
-            flex-direction: column;
-            gap: 0.5rem;
-            position: relative;
-            overflow: hidden;
-        }
-
-        .stat-card::before {
-            content: '';
-            position: absolute;
-            top: 0;
-            left: 0;
-            width: 4px;
-            height: 100%;
-            background: var(--accent-cyan);
-        }
-
-        .stat-card.success::before { background: var(--accent-emerald); }
-        .stat-card.danger::before { background: var(--accent-rose); }
-        .stat-card.amber::before { background: var(--accent-amber); }
-
-        .stat-card .stat-label {
-            font-size: 0.75rem;
-            color: var(--text-secondary);
-            text-transform: uppercase;
-            letter-spacing: 0.08em;
-            font-weight: 600;
-        }
-
-        .stat-card .stat-value {
-            font-size: 1.85rem;
-            font-weight: 700;
-            color: #fff;
-            letter-spacing: -0.5px;
-        }
-
-        .stat-card .stat-trend {
-            font-size: 0.75rem;
-            color: var(--text-muted);
-            margin-top: -0.25rem;
-        }
-
-        /* Tabs Navigation */
-        .tabs-nav {
-            display: flex;
-            gap: 0.5rem;
-            background: rgba(8, 12, 28, 0.4);
-            padding: 0.35rem;
-            border-radius: 12px;
-            border: 1px solid var(--border-color);
-        }
-
-        .tab-btn {
-            background: transparent;
-            border: none;
-            color: var(--text-secondary);
-            padding: 0.6rem 1.25rem;
-            border-radius: 8px;
-            font-size: 0.875rem;
-            font-weight: 600;
-            cursor: pointer;
-            display: flex;
-            align-items: center;
-            gap: 0.5rem;
-            transition: all var(--transition-smooth);
-        }
-
-        .tab-btn:hover {
-            color: #fff;
-            background: rgba(255, 255, 255, 0.04);
-        }
-
-        .tab-btn.active {
-            color: var(--accent-cyan);
-            background: rgba(0, 240, 255, 0.08);
-            box-shadow: inset 0 1px 0 rgba(255,255,255,0.05);
-        }
-
-        /* Tab Content layouts */
-        .tab-content {
-            display: none;
-            animation: fadeIn 0.3s ease;
-        }
-
-        .tab-content.active {
-            display: block;
-        }
-
-        @keyframes fadeIn {
-            from { opacity: 0; transform: translateY(5px); }
-            to { opacity: 1; transform: translateY(0); }
-        }
-
-        /* Grid systems inside tab content */
-        .terminal-grid {
-            display: grid;
-            grid-template-columns: 2fr 1fr;
-            gap: 1.25rem;
-        }
-
-        @media (max-width: 1200px) {
-            .terminal-grid {
-                grid-template-columns: 1fr;
-            }
-        }
-
-        .section-title {
-            font-size: 1.125rem;
-            font-weight: 700;
-            margin-bottom: 1rem;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            border-bottom: 1px solid var(--border-color);
-            padding-bottom: 0.5rem;
-            color: #fff;
-        }
-
-        /* Control Buttons */
-        .btn {
-            display: inline-flex;
-            align-items: center;
-            justify-content: center;
-            gap: 0.5rem;
-            padding: 0.55rem 1.1rem;
-            border-radius: 8px;
-            font-weight: 600;
-            font-size: 0.8125rem;
-            cursor: pointer;
-            transition: all var(--transition-smooth);
-            border: 1px solid transparent;
-            font-family: var(--font-sans);
-            text-transform: uppercase;
-            letter-spacing: 0.03em;
-        }
-
-        .btn-primary {
-            background: var(--accent-cyan);
-            color: #030611;
-            box-shadow: var(--glow-cyan);
-        }
-
-        .btn-primary:hover {
-            opacity: 0.95;
-            transform: translateY(-1px);
-            box-shadow: 0 0 25px rgba(0, 240, 255, 0.45);
-        }
-
-        .btn-secondary {
-            background: rgba(255, 255, 255, 0.04);
-            color: var(--text-primary);
-            border-color: var(--border-color);
-        }
-
-        .btn-secondary:hover {
-            background: rgba(255, 255, 255, 0.08);
-            border-color: rgba(255, 255, 255, 0.15);
-        }
-
-        .btn-danger {
-            background: rgba(244, 63, 94, 0.1);
-            color: var(--accent-rose);
-            border-color: rgba(244, 63, 94, 0.25);
-        }
-
-        .btn-danger:hover {
-            background: var(--accent-rose);
-            color: white;
-            box-shadow: var(--glow-rose);
-            transform: translateY(-1px);
-        }
-
-        /* Massive Quick Execution Box */
-        .hero-execute-box {
-            background: radial-gradient(100% 100% at 50% 0%, rgba(0, 240, 255, 0.08) 0%, rgba(3, 6, 17, 0) 100%), var(--bg-surface);
-            border: 1px solid rgba(0, 240, 255, 0.15);
-            text-align: center;
-            padding: 2rem;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            gap: 1rem;
-            border-radius: 16px;
-        }
-
-        .hero-execute-title {
-            font-size: 1.25rem;
-            font-weight: 800;
-            letter-spacing: -0.2px;
-        }
-
-        .hero-execute-desc {
-            font-size: 0.875rem;
-            color: var(--text-secondary);
-            max-width: 500px;
-            line-height: 1.6;
-        }
-
-        .btn-arm-system {
-            background: linear-gradient(135deg, var(--accent-cyan) 0%, #0077ff 100%);
-            color: #030611;
-            padding: 0.9rem 2.5rem;
-            font-size: 1.05rem;
-            font-weight: 800;
-            border-radius: 12px;
-            box-shadow: 0 0 25px rgba(0, 240, 255, 0.35);
-            border: none;
-            cursor: pointer;
-            transition: all var(--transition-smooth);
-            animation: breathe 2.5s infinite;
-        }
-
-        .btn-arm-system:hover {
-            transform: scale(1.03) translateY(-1px);
-            box-shadow: 0 0 35px rgba(0, 240, 255, 0.55);
-        }
-
-        @keyframes breathe {
-            0% { box-shadow: 0 0 15px rgba(0, 240, 255, 0.3); }
-            50% { box-shadow: 0 0 28px rgba(0, 240, 255, 0.55); }
-            100% { box-shadow: 0 0 15px rgba(0, 240, 255, 0.3); }
-        }
-
-        /* Watchlist Forms */
-        .horizontal-form {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)) auto;
-            gap: 0.75rem;
-            align-items: flex-end;
-            background: rgba(255, 255, 255, 0.02);
-            padding: 1rem;
-            border-radius: 12px;
-            border: 1px solid rgba(255, 255, 255, 0.04);
-            margin-bottom: 1rem;
-        }
-
-        .form-group {
-            display: flex;
-            flex-direction: column;
-            gap: 0.35rem;
-        }
-
-        .form-group label {
-            font-size: 0.725rem;
-            color: var(--text-secondary);
-            font-weight: 600;
-            text-transform: uppercase;
-            letter-spacing: 0.05em;
-        }
-
-        .form-input {
-            background: rgba(3, 5, 12, 0.9);
-            border: 1px solid var(--border-color);
-            border-radius: 6px;
-            padding: 0.5rem 0.75rem;
-            color: white;
-            font-family: var(--font-sans);
-            font-size: 0.875rem;
-            transition: all var(--transition-smooth);
-        }
-
-        .form-input:focus {
-            outline: none;
-            border-color: var(--accent-cyan);
-            box-shadow: 0 0 0 2px rgba(0, 240, 255, 0.15);
-        }
-
-        /* Beautiful Tables */
-        .table-container {
-            overflow-x: auto;
-            border-radius: 10px;
-            border: 1px solid var(--border-color);
-            background: rgba(4, 7, 15, 0.3);
-        }
-
-        table {
-            width: 100%;
-            border-collapse: collapse;
-            font-size: 0.875rem;
-            text-align: left;
-        }
-
-        th {
-            padding: 0.85rem 1.1rem;
-            color: var(--text-secondary);
-            font-weight: 600;
-            border-bottom: 1px solid var(--border-color);
-            background: rgba(255, 255, 255, 0.02);
-            font-size: 0.75rem;
-            text-transform: uppercase;
-            letter-spacing: 0.06em;
-        }
-
-        td {
-            padding: 0.85rem 1.1rem;
-            border-bottom: 1px solid rgba(255, 255, 255, 0.03);
-            color: var(--text-primary);
-            vertical-align: middle;
-        }
-
-        tr:last-child td {
-            border-bottom: none;
-        }
-
-        tr:hover td {
-            background: rgba(255, 255, 255, 0.01);
-        }
-
-        /* Order Book Depth Visual Progress Bar */
-        .depth-bar-container {
-            width: 100px;
-            height: 14px;
-            background: rgba(244, 63, 94, 0.2);
-            border-radius: 3px;
-            position: relative;
-            overflow: hidden;
-            display: inline-flex;
-            vertical-align: middle;
-            border: 1px solid rgba(255,255,255,0.03);
-        }
-
-        .depth-bar-fill {
-            height: 100%;
-            background: var(--accent-emerald);
-            transition: width 0.3s ease;
-        }
-
-        .depth-text {
-            position: absolute;
-            width: 100%;
-            text-align: center;
-            font-size: 0.65rem;
-            font-family: var(--font-mono);
-            font-weight: 700;
-            line-height: 14px;
-            color: #fff;
-            mix-blend-mode: difference;
-        }
-
-        /* Form Inputs Inside Watchlist Edit Tables */
-        .table-input {
-            background: rgba(0, 0, 0, 0.2);
-            border: 1px solid transparent;
-            color: #fff;
-            font-family: var(--font-sans);
-            font-size: 0.875rem;
-            padding: 0.3rem 0.5rem;
-            border-radius: 6px;
-            width: 85px;
-            transition: all var(--transition-smooth);
-        }
-
-        .table-input:hover {
-            border-color: var(--border-color);
-            background: rgba(0,0,0,0.3);
-        }
-
-        .table-input:focus {
-            outline: none;
-            border-color: var(--accent-cyan);
-            background: rgba(0,0,0,0.5);
-            box-shadow: 0 0 0 2px rgba(0, 240, 255, 0.1);
-        }
-
-        .symbol-badge {
-            font-family: var(--font-mono);
-            font-weight: 700;
-            background: rgba(0, 240, 255, 0.06);
-            border: 1px solid rgba(0, 240, 255, 0.15);
-            padding: 0.25rem 0.5rem;
-            border-radius: 6px;
-            color: var(--accent-cyan);
-            letter-spacing: 0.2px;
-        }
-
-        /* Headless Browser Screen Viewer */
-        .browser-viewer-container {
-            display: flex;
-            flex-direction: column;
-            gap: 1rem;
-            align-items: center;
-        }
-
-        .browser-screen-frame {
-            border: 1px solid var(--border-color);
-            border-radius: 12px;
-            background: #000;
-            width: 100%;
-            max-width: 1000px;
-            aspect-ratio: 16/9;
-            overflow: hidden;
-            position: relative;
-            box-shadow: 0 20px 40px rgba(0,0,0,0.8);
-        }
-
-        .browser-screen-frame img {
-            width: 100%;
-            height: 100%;
-            object-fit: contain;
-        }
-
-        .browser-watermark {
-            position: absolute;
-            bottom: 1rem;
-            right: 1rem;
-            background: rgba(0,0,0,0.7);
-            color: var(--text-secondary);
-            font-size: 0.75rem;
-            padding: 0.25rem 0.5rem;
-            border-radius: 4px;
-            font-family: var(--font-mono);
-            border: 1px solid var(--border-color);
-        }
-
-        /* Advanced Console Terminal */
-        .console-terminal {
-            background: #02040a;
-            border: 1px solid var(--border-color);
-            border-radius: 12px;
-            display: flex;
-            flex-direction: column;
-            height: 550px;
-            font-family: var(--font-mono);
-            font-size: 0.8125rem;
-            box-shadow: inset 0 2px 10px rgba(0,0,0,0.8);
-        }
-
-        .terminal-header {
-            background: rgba(255, 255, 255, 0.02);
-            border-bottom: 1px solid var(--border-color);
-            padding: 0.75rem 1rem;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-        }
-
-        .terminal-controls {
-            display: flex;
-            align-items: center;
-            gap: 0.5rem;
-        }
-
-        .terminal-btn-filter {
-            background: transparent;
-            border: 1px solid var(--border-color);
-            color: var(--text-secondary);
-            padding: 0.25rem 0.6rem;
-            border-radius: 4px;
-            font-size: 0.7rem;
-            font-weight: 600;
-            cursor: pointer;
-            transition: all var(--transition-smooth);
-            text-transform: uppercase;
-        }
-
-        .terminal-btn-filter.active {
-            background: var(--text-secondary);
-            color: #02040a;
-        }
-
-        .terminal-btn-filter.active.filter-debug { background: #475569; color: #fff; }
-        .terminal-btn-filter.active.filter-info { background: var(--accent-cyan); color: #02040a; }
-        .terminal-btn-filter.active.filter-warn { background: var(--accent-amber); color: #02040a; }
-        .terminal-btn-filter.active.filter-error { background: var(--accent-rose); color: #fff; }
-
-        .terminal-body {
-            flex: 1;
-            overflow-y: auto;
-            padding: 1rem;
-            display: flex;
-            flex-direction: column;
-            gap: 0.25rem;
-        }
-
-        .terminal-line {
-            display: flex;
-            gap: 0.75rem;
-            line-height: 1.4;
-            padding: 0.15rem 0.25rem;
-            border-radius: 4px;
-            transition: background 0.15s ease;
-        }
-
-        .terminal-line:hover {
-            background: rgba(255,255,255,0.03);
-        }
-
-        .terminal-time {
-            color: var(--text-muted);
-            white-space: nowrap;
-        }
-
-        .terminal-level {
-            font-weight: 700;
-            text-transform: uppercase;
-            width: 60px;
-            text-align: center;
-            border-radius: 3px;
-            font-size: 0.7rem;
-            line-height: 1.4;
-        }
-
-        .level-debug { color: #64748b; background: rgba(100,116,139,0.15); }
-        .level-info { color: var(--accent-cyan); background: rgba(0, 240, 255, 0.15); }
-        .level-warn { color: var(--accent-amber); background: rgba(245, 158, 11, 0.15); }
-        .level-error { color: var(--accent-rose); background: rgba(244, 63, 94, 0.15); }
-        .level-critical { color: #fff; background: var(--accent-rose); box-shadow: 0 0 10px rgba(244,63,94,0.4); }
-
-        .terminal-msg {
-            color: #d1d5db;
-            word-break: break-all;
-        }
-
-        /* Analytics charts container */
-        .chart-box {
-            width: 100%;
-            height: 300px;
-            background: rgba(0,0,0,0.15);
-            border-radius: 10px;
-            border: 1px solid var(--border-color);
-            padding: 1rem;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-        }
-
-        /* Floating Toast Alerts */
-        .toast-container {
-            position: fixed;
-            bottom: 2rem;
-            right: 2rem;
-            display: flex;
-            flex-direction: column;
-            gap: 0.5rem;
-            z-index: 9999;
-        }
-
-        .toast {
-            background: var(--bg-panel);
-            border-left: 4px solid var(--accent-cyan);
-            box-shadow: 0 20px 40px rgba(0,0,0,0.6), 0 0 0 1px var(--border-color);
-            color: white;
-            padding: 0.9rem 1.5rem;
-            border-radius: 8px;
-            font-size: 0.875rem;
-            font-weight: 500;
-            min-width: 320px;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            backdrop-filter: blur(10px);
-            animation: slideIn 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
-        }
-
-        @keyframes slideIn {
-            from { transform: translateX(120%); opacity: 0; }
-            to { transform: translateX(0); opacity: 1; }
-        }
-
-        .toast.toast-error {
-            border-left-color: var(--accent-rose);
-        }
-
-        .toast.toast-success {
-            border-left-color: var(--accent-emerald);
-        }
-
-        .toast.toast-warn {
-            border-left-color: var(--accent-amber);
-        }
-    </style>
+    <!-- Modular Stylesheets -->
+    <link rel="stylesheet" href="/static/css/variables.css">
+    <link rel="stylesheet" href="/static/css/layout.css">
+    <link rel="stylesheet" href="/static/css/components.css">
 </head>
 <body>
 
-    <div class="app-container">
+    <!-- Mobile Header -->
+    <div class="mobile-header">
+        <div class="mobile-brand">
+            <h1>⚡ NEPSE ULTRA</h1>
+        </div>
+        <div style="display: flex; align-items: center; gap: 0.5rem;">
+            <button class="sound-toggle-btn sound-on" id="mobile-sound-btn" onclick="window.toggleSound()">🔊</button>
+            <button class="mobile-menu-btn" onclick="window.toggleMobileSidebar()">☰</button>
+        </div>
+    </div>
+
+    <!-- Mobile Sidebar Backdrop -->
+    <div class="sidebar-backdrop" id="sidebar-backdrop-el" onclick="window.toggleMobileSidebar()"></div>
+
+    <!-- App Wrapper -->
+    <div class="app-wrapper">
         
-        <!-- Header -->
-        <header>
-            <div class="logo-section">
-                <h1>⚡ NEPSE ULTRA TERMINAL</h1>
-                <p>High-Frequency Staging & Preemptive Execution Bot Dashboard</p>
-            </div>
-            
-            <div class="header-controls">
-                <button class="sound-toggle-btn sound-on" id="sound-btn" onclick="toggleSound()" title="Toggle Sound Alerts">
-                    🔊
-                </button>
-                <div class="system-status-badges">
-                    <span class="badge badge-success" id="connection-status">
-                        <span class="status-dot"></span> Websocket Connected
-                    </span>
-                    <span class="badge badge-success" id="risk-badge">
-                        <span class="status-dot"></span> Risk Guard Active
-                    </span>
+        <!-- Sidebar Admin Panel Navigation -->
+        <aside class="sidebar" id="sidebar-menu-el">
+            <div class="sidebar-header">
+                <div class="sidebar-brand">
+                    <h1>⚡ NEPSE ULTRA</h1>
+                    <p>Trading Bot Admin Panel</p>
                 </div>
             </div>
-        </header>
+            
+            <nav class="sidebar-menu">
+                <button class="sidebar-menu-btn active" onclick="window.switchTab('tab-terminal')">📈 Live Terminal</button>
+                <button class="sidebar-menu-btn" onclick="window.switchTab('tab-watchlist')">⚙️ Watchlist Editor</button>
+                <button class="sidebar-menu-btn" onclick="window.switchTab('tab-browser')">🖥️ Live Browser View</button>
+                <button class="sidebar-menu-btn" onclick="window.switchTab('tab-logs')">📟 System Console</button>
+                <button class="sidebar-menu-btn" onclick="window.switchTab('tab-analytics')">📊 Analytics Charts</button>
+            </nav>
+            
+            <div class="sidebar-footer">
+                <span class="badge badge-success" id="connection-status" style="width: 100%; justify-content: center;">
+                    <span class="status-dot"></span> Websocket Connected
+                </span>
+                <span class="badge badge-success" id="risk-badge" style="width: 100%; justify-content: center;">
+                    <span class="status-dot"></span> Risk Guard Active
+                </span>
+            </div>
+        </aside>
 
-        <!-- Stats Grid -->
-        <div class="stats-grid">
-            <div class="glass-panel stat-card">
-                <span class="stat-label">Uptime</span>
-                <span class="stat-value" id="stat-uptime">--</span>
-                <span class="stat-trend" id="stat-env-label">Production Mode</span>
-            </div>
-            <div class="glass-panel stat-card success">
-                <span class="stat-label">Latency (p95)</span>
-                <span class="stat-value" id="stat-latency" style="color: var(--accent-emerald)">-- ms</span>
-                <span class="stat-trend">EventBus < 1ms Loop</span>
-            </div>
-            <div class="glass-panel stat-card">
-                <span class="stat-label">Orders Placed</span>
-                <span class="stat-value" id="stat-orders">0</span>
-                <span class="stat-trend">Submitted to Naasa API</span>
-            </div>
-            <div class="glass-panel stat-card amber">
-                <span class="stat-label">Daily Capital Exposure</span>
-                <span class="stat-value" id="stat-exposure" style="color: var(--accent-amber)">Loading...</span>
-                <span class="stat-trend">Pre-configured safety caps</span>
-            </div>
-        </div>
+        <!-- Main Content Area -->
+        <main class="main-content">
+            
+            <!-- Desktop Header -->
+            <header class="main-header">
+                <div class="header-title">
+                    <h2>NEPSE Ultra Trading Console</h2>
+                    <p>Preemptive order staging and real-time execution loop</p>
+                </div>
+                
+                <div style="display: flex; align-items: center; gap: 0.75rem;">
+                    <span class="badge badge-success" id="mobile-connection-status" style="display: none;">
+                        <span class="status-dot"></span> Websocket Connected
+                    </span>
+                    <span class="badge badge-success" id="mobile-risk-badge" style="display: none;">
+                        <span class="status-dot"></span> Risk Guard Active
+                    </span>
+                    <button class="sound-toggle-btn sound-on" id="sound-btn" onclick="window.toggleSound()" title="Toggle Sound Alerts">
+                        🔊
+                    </button>
+                </div>
+            </header>
 
-        <!-- Navigation Tabs -->
-        <div class="tabs-nav">
-            <button class="tab-btn active" onclick="switchTab('tab-terminal')">📈 Live Terminal</button>
-            <button class="tab-btn" onclick="switchTab('tab-watchlist')">⚙️ Watchlist Editor</button>
-            <button class="tab-btn" onclick="switchTab('tab-browser')">🖥️ Live Browser View</button>
-            <button class="tab-btn" onclick="switchTab('tab-logs')">📟 System Console</button>
-            <button class="tab-btn" onclick="switchTab('tab-analytics')">📊 Analytics Charts</button>
-        </div>
+            <!-- Content Area Body -->
+            <div class="content-body">
+                
+                <!-- Stats Overview Grid -->
+                <div class="stats-grid">
+                    <div class="glass-panel stat-card">
+                        <span class="stat-label">Uptime</span>
+                        <span class="stat-value" id="stat-uptime">--</span>
+                        <span class="stat-trend" id="stat-env-label">Production Mode</span>
+                    </div>
+                    <div class="glass-panel stat-card success">
+                        <span class="stat-label">Latency (p95)</span>
+                        <span class="stat-value" id="stat-latency" style="color: var(--accent-emerald)">-- ms</span>
+                        <span class="stat-trend">EventBus &lt; 1ms Loop</span>
+                    </div>
+                    <div class="glass-panel stat-card">
+                        <span class="stat-label">Orders Placed</span>
+                        <span class="stat-value" id="stat-orders">0</span>
+                        <span class="stat-trend">Submitted to Naasa API</span>
+                    </div>
+                    <div class="glass-panel stat-card amber">
+                        <span class="stat-label">Daily Capital Exposure</span>
+                        <span class="stat-value" id="stat-exposure" style="color: var(--accent-amber)">Loading...</span>
+                        <span class="stat-trend">Pre-configured safety caps</span>
+                    </div>
+                </div>
 
-        <!-- Tab 1: Live Terminal -->
-        <div id="tab-terminal" class="tab-content active">
-            <div class="terminal-grid">
-                <div class="glass-panel" style="display:flex; flex-direction:column; gap:1.25rem;">
-                    <div>
-                        <div class="section-title">
-                            <span>Live Circuit Watcher & Market Monitor</span>
-                            <span class="badge badge-info" style="font-size:0.65rem;">Direct WebSocket Stream</span>
+                <!-- Tab 1: Live Terminal Pane -->
+                <div id="tab-terminal" class="tab-content active">
+                    <div class="terminal-grid">
+                        <div class="glass-panel" style="display: flex; flex-direction: column; gap: 1.25rem;">
+                            <div>
+                                <div class="section-title">
+                                    <span>Live Circuit Watcher & Market Monitor</span>
+                                    <span class="badge badge-info" style="font-size: 0.65rem;">Direct WebSocket Stream</span>
+                                </div>
+                                <div class="table-container">
+                                    <table>
+                                        <thead>
+                                            <tr>
+                                                <th>Symbol</th>
+                                                <th>LTP (NPR)</th>
+                                                <th>Bid Volume</th>
+                                                <th>Order Depth</th>
+                                                <th>Ask Volume</th>
+                                                <th>Circuit Target</th>
+                                                <th>Status</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody id="live-watcher-tbody">
+                                            <tr>
+                                                <td colspan="7" style="text-align: center; color: var(--text-muted);">Waiting for market data ticks from WebSocket stream...</td>
+                                            </tr>
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+
+                            <!-- Quick Command Bar -->
+                            <div class="hero-execute-box">
+                                <div class="hero-execute-title">ARM & STAGE STOCK ORDERS</div>
+                                <p class="hero-execute-desc">
+                                    Instantly stage order forms for all enabled watchlist stocks inside the broker browser session.
+                                    The preemptive trigger engine will automatically place the order in less than 1ms when circuit limits are hit.
+                                </p>
+                                <button class="btn-arm-system" onclick="window.armAndExecuteBot()">
+                                    Arm Preemptive Staging
+                                </button>
+                            </div>
                         </div>
+
+                        <!-- Secondary Panel: Orders Log -->
+                        <div style="display: flex; flex-direction: column; gap: 1rem;">
+                            <div class="glass-panel" style="flex: 1;">
+                                <div class="section-title">Placed Orders</div>
+                                <div class="table-container" style="max-height: 480px; overflow-y: auto; border: none;">
+                                    <table>
+                                        <thead>
+                                            <tr>
+                                                <th>Time</th>
+                                                <th>Symbol</th>
+                                                <th>Qty@Price</th>
+                                                <th>Latency</th>
+                                                <th>Status</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody id="orders-tbody-terminal">
+                                            <tr><td colspan="5" style="text-align: center; color: var(--text-muted)">No orders logged.</td></tr>
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+
+                            <div class="glass-panel" style="padding: 1rem;">
+                                <div class="section-title" style="margin-bottom: 0.75rem;">Emergency Shutdown</div>
+                                <div style="display: flex; gap: 0.5rem;">
+                                    <button class="btn btn-danger" onclick="window.emergencyKillSwitch()" style="flex: 1;">ACTIVATE KILL SWITCH</button>
+                                    <button class="btn btn-secondary" onclick="window.resetKillSwitch()">RESET</button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Tab 2: Watchlist Editor Pane -->
+                <div id="tab-watchlist" class="tab-content">
+                    <div class="glass-panel">
+                        <div class="section-title">
+                            <span>Watchlist Editor & Strategy Configurator</span>
+                            <div style="display: flex; gap: 0.5rem;">
+                                <button class="btn btn-secondary" onclick="window.loadWatchlist()">Reload From YAML</button>
+                                <button class="btn btn-primary" onclick="window.saveWatchlistToServer()">Save to watchlist.yaml</button>
+                            </div>
+                        </div>
+
+                        <!-- Add Symbol Form -->
+                        <div class="horizontal-form">
+                            <div class="form-group">
+                                <label for="form-symbol">Symbol</label>
+                                <input type="text" id="form-symbol" class="form-input" placeholder="e.g. YMHL" style="text-transform: uppercase;">
+                            </div>
+                            <div class="form-group">
+                                <label for="form-qty">Quantity</label>
+                                <input type="number" id="form-qty" class="form-input" placeholder="10" min="1" value="10">
+                            </div>
+                            <div class="form-group">
+                                <label for="form-prev">Prev Close (NPR)</label>
+                                <input type="number" id="form-prev" class="form-input" placeholder="100.0" min="0.1" step="0.1">
+                            </div>
+                            <div class="form-group">
+                                <label for="form-circuit">Circuit Limit %</label>
+                                <input type="number" id="form-circuit" class="form-input" placeholder="15" min="1" max="100" value="15">
+                            </div>
+                            <div class="form-group">
+                                <label for="form-strategy">Strategy</label>
+                                <select id="form-strategy" class="form-input" style="height: 38px;">
+                                    <option value="ipo_daily_circuit">IPO Daily Circuit (Fast Stage)</option>
+                                    <option value="upper_circuit_breakout">Upper Circuit Breakout</option>
+                                </select>
+                            </div>
+                            <button class="btn btn-primary" onclick="window.addNewWatchlistItem()" style="height: 38px;">Add Stock</button>
+                        </div>
+
+                        <!-- Editable Watchlist Table -->
                         <div class="table-container">
                             <table>
                                 <thead>
                                     <tr>
                                         <th>Symbol</th>
-                                        <th>LTP (NPR)</th>
-                                        <th>Bid Volume</th>
-                                        <th>Order Depth</th>
-                                        <th>Ask Volume</th>
-                                        <th>Circuit Target</th>
+                                        <th>Order Quantity</th>
+                                        <th>Prev Close (NPR)</th>
+                                        <th>Circuit % Limit</th>
+                                        <th>Trading Strategy</th>
+                                        <th>IPO Mode</th>
                                         <th>Status</th>
-                                    </tr>
-                                </thead>
-                                <tbody id="live-watcher-tbody">
-                                    <tr>
-                                        <td colspan="7" style="text-align: center; color: var(--text-muted);">Waiting for market data ticks from WebSocket stream...</td>
-                                    </tr>
-                                </tbody>
-                            </table>
-                        </div>
-                    </div>
-
-                    <!-- Quick Command Bar -->
-                    <div class="hero-execute-box">
-                        <div class="hero-execute-title">ARM & STAGE STOCK ORDERS</div>
-                        <p class="hero-execute-desc">
-                            Instantly stage order forms for all enabled watchlist stocks inside the broker browser session.
-                            The preemptive trigger engine will automatically place the order in less than 1ms when circuit limits are hit.
-                        </p>
-                        <button class="btn-arm-system" onclick="armAndExecuteBot()">
-                            Arm Preemptive Staging
-                        </button>
-                    </div>
-                </div>
-
-                <!-- Secondary Panel: Signals & Orders Log -->
-                <div style="display:flex; flex-direction:column; gap:1rem;">
-                    <div class="glass-panel" style="flex:1;">
-                        <div class="section-title">Recent Signals</div>
-                        <div class="table-container" style="max-height: 220px; overflow-y:auto; border:none;">
-                            <table>
-                                <thead>
-                                    <tr>
-                                        <th>Time</th>
-                                        <th>Symbol</th>
-                                        <th>Trigger</th>
                                         <th>Action</th>
                                     </tr>
                                 </thead>
-                                <tbody id="signals-tbody-terminal">
-                                    <tr><td colspan="4" style="text-align: center; color: var(--text-muted)">No signals caught.</td></tr>
+                                <tbody id="watchlist-editable-tbody">
+                                    <!-- Populated dynamically -->
                                 </tbody>
                             </table>
                         </div>
                     </div>
+                </div>
 
-                    <div class="glass-panel" style="flex:1;">
-                        <div class="section-title">Placed Orders</div>
-                        <div class="table-container" style="max-height: 220px; overflow-y:auto; border:none;">
-                            <table>
-                                <thead>
-                                    <tr>
-                                        <th>Time</th>
-                                        <th>Symbol</th>
-                                        <th>Qty@Price</th>
-                                        <th>Status</th>
-                                    </tr>
-                                </thead>
-                                <tbody id="orders-tbody-terminal">
-                                    <tr><td colspan="4" style="text-align: center; color: var(--text-muted)">No orders logged.</td></tr>
-                                </tbody>
-                            </table>
+                <!-- Tab 3: Live Browser View Pane -->
+                <div id="tab-browser" class="tab-content">
+                    <div class="glass-panel browser-viewer-container">
+                        <div style="width: 100%; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--border-color); padding-bottom: 0.75rem;">
+                            <div>
+                                <h2 style="font-size: 1.125rem; font-weight: 700;">Playwright Headless Browser Visualizer</h2>
+                                <p style="font-size: 0.75rem; color: var(--text-secondary); margin-top: 0.25rem;">Real-time on-demand screen grab of the active broker session</p>
+                            </div>
+                            <button class="btn btn-primary" onclick="window.refreshBrowserScreenshot()">Refresh Browser Screen</button>
                         </div>
-                    </div>
 
-                    <div class="glass-panel" style="padding: 1rem;">
-                        <div class="section-title" style="margin-bottom:0.75rem;">Emergency Shutdown</div>
-                        <div style="display: flex; gap: 0.5rem;">
-                            <button class="btn btn-danger" onclick="emergencyKillSwitch()" style="flex: 1;">ACTIVATE KILL SWITCH</button>
-                            <button class="btn btn-secondary" onclick="resetKillSwitch()">RESET</button>
+                        <div class="browser-screen-frame">
+                            <img id="browser-screenshot-img" src="/api/screenshot" alt="Playwright Web View Screen Capture">
+                            <div class="browser-watermark" id="screenshot-timestamp">LAST UPDATE: LOADING...</div>
                         </div>
-                    </div>
-                </div>
-            </div>
-        </div>
-
-        <!-- Tab 2: Watchlist Editor -->
-        <div id="tab-watchlist" class="tab-content">
-            <div class="glass-panel">
-                <div class="section-title">
-                    <span>Watchlist Editor & Strategy Configurator</span>
-                    <div style="display: flex; gap: 0.5rem;">
-                        <button class="btn btn-secondary" onclick="loadWatchlist()">Reload From YAML</button>
-                        <button class="btn btn-primary" onclick="saveWatchlistToServer()">Save to watchlist.yaml</button>
-                    </div>
-                </div>
-
-                <!-- Add Symbol Form -->
-                <div class="horizontal-form">
-                    <div class="form-group">
-                        <label for="form-symbol">Symbol</label>
-                        <input type="text" id="form-symbol" class="form-input" placeholder="e.g. YMHL" style="text-transform: uppercase;">
-                    </div>
-                    <div class="form-group">
-                        <label for="form-qty">Quantity</label>
-                        <input type="number" id="form-qty" class="form-input" placeholder="10" min="1" value="10">
-                    </div>
-                    <div class="form-group">
-                        <label for="form-prev">Prev Close (NPR)</label>
-                        <input type="number" id="form-prev" class="form-input" placeholder="100.0" min="0.1" step="0.1">
-                    </div>
-                    <div class="form-group">
-                        <label for="form-circuit">Circuit Limit %</label>
-                        <input type="number" id="form-circuit" class="form-input" placeholder="15" min="1" max="100" value="15">
-                    </div>
-                    <div class="form-group">
-                        <label for="form-strategy">Strategy</label>
-                        <select id="form-strategy" class="form-input" style="height:38px;">
-                            <option value="ipo_daily_circuit">IPO Daily Circuit (Fast Stage)</option>
-                            <option value="upper_circuit_breakout">Upper Circuit Breakout</option>
-                        </select>
-                    </div>
-                    <button class="btn btn-primary" onclick="addNewWatchlistItem()" style="height: 38px;">Add Stock</button>
-                </div>
-
-                <!-- Editable Watchlist Grid -->
-                <div class="table-container">
-                    <table>
-                        <thead>
-                            <tr>
-                                <th>Symbol</th>
-                                <th>Order Quantity</th>
-                                <th>Prev Close (NPR)</th>
-                                <th>Circuit % Limit</th>
-                                <th>Trading Strategy</th>
-                                <th>IPO Mode</th>
-                                <th>Status</th>
-                                <th>Action</th>
-                            </tr>
-                        </thead>
-                        <tbody id="watchlist-editable-tbody">
-                            <!-- Populated dynamically -->
-                        </tbody>
-                    </table>
-                </div>
-            </div>
-        </div>
-
-        <!-- Tab 3: Live Browser View -->
-        <div id="tab-browser" class="tab-content">
-            <div class="glass-panel browser-viewer-container">
-                <div style="width: 100%; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--border-color); padding-bottom: 0.75rem;">
-                    <div>
-                        <h2 style="font-size:1.125rem; font-weight:700;">Playwright Headless Browser Visualizer</h2>
-                        <p style="font-size:0.75rem; color:var(--text-secondary); margin-top:0.25rem;">Real-time on-demand screen grab of the active broker session</p>
-                    </div>
-                    <button class="btn btn-primary" onclick="refreshBrowserScreenshot()">Refresh Browser Screen</button>
-                </div>
-
-                <div class="browser-screen-frame">
-                    <img id="browser-screenshot-img" src="/api/screenshot" alt="Playwright Web View Screen Capture">
-                    <div class="browser-watermark" id="screenshot-timestamp">LAST UPDATE: LOADING...</div>
-                </div>
-                
-                <p style="font-size:0.75rem; color:var(--text-muted); text-align:center; max-width:600px;">
-                    This feature allows you to verify that the bot is successfully logged in, has staging tables open, and that no captcha blocks or popups are present on the TMS Portal.
-                </p>
-            </div>
-        </div>
-
-        <!-- Tab 4: System Console -->
-        <div id="tab-logs" class="tab-content">
-            <div class="glass-panel">
-                <div class="console-terminal">
-                    <div class="terminal-header">
-                        <span style="font-weight:700; color:var(--accent-cyan); display:flex; align-items:center; gap:0.5rem;">
-                            📟 nepse_bot.log Streamer
-                        </span>
                         
-                        <div class="terminal-controls">
-                            <!-- Filters -->
-                            <button class="terminal-btn-filter active" onclick="setLogFilter('all')">ALL</button>
-                            <button class="terminal-btn-filter filter-debug" onclick="setLogFilter('debug')">DEBUG</button>
-                            <button class="terminal-btn-filter filter-info" onclick="setLogFilter('info')">INFO</button>
-                            <button class="terminal-btn-filter filter-warn" onclick="setLogFilter('warning')">WARN</button>
-                            <button class="terminal-btn-filter filter-error" onclick="setLogFilter('error')">ERROR</button>
-                            
-                            <!-- Search -->
-                            <input type="text" id="log-search-input" class="form-input" placeholder="Search logs..." style="padding:0.2rem 0.5rem; font-size:0.7rem; width:150px;" oninput="applyLogFilters()">
-                            
-                            <button class="btn btn-secondary" onclick="fetchConsoleLogs()" style="padding:0.25rem 0.5rem; font-size:0.7rem; margin-left:0.5rem;">Refresh Logs</button>
+                        <p style="font-size: 0.75rem; color: var(--text-muted); text-align: center; max-width: 600px;">
+                            This feature allows you to verify that the bot is successfully logged in, has staging tables open, and that no captcha blocks or popups are present on the TMS Portal.
+                        </p>
+                    </div>
+                </div>
+
+                <!-- Tab 4: System Console Pane -->
+                <div id="tab-logs" class="tab-content">
+                    <div class="glass-panel">
+                        <div class="console-terminal">
+                            <div class="terminal-header">
+                                <span style="font-weight: 700; color: var(--accent-cyan); display: flex; align-items: center; gap: 0.5rem;">
+                                    📟 nepse_bot.log Streamer
+                                </span>
+                                
+                                <div class="terminal-controls">
+                                    <button class="terminal-btn-filter active" onclick="window.setLogFilter('all')">ALL</button>
+                                    <button class="terminal-btn-filter filter-debug" onclick="window.setLogFilter('debug')">DEBUG</button>
+                                    <button class="terminal-btn-filter filter-info" onclick="window.setLogFilter('info')">INFO</button>
+                                    <button class="terminal-btn-filter filter-warn" onclick="window.setLogFilter('warning')">WARN</button>
+                                    <button class="terminal-btn-filter filter-error" onclick="window.setLogFilter('error')">ERROR</button>
+                                    
+                                    <input type="text" id="log-search-input" class="form-input" placeholder="Search logs..." style="padding: 0.2rem 0.5rem; font-size: 0.7rem; width: 150px;" oninput="window.applyLogFilters()">
+                                    
+                                    <button class="btn btn-secondary" onclick="window.fetchConsoleLogs()" style="padding: 0.25rem 0.5rem; font-size: 0.7rem; margin-left: 0.5rem;">Refresh Logs</button>
+                                </div>
+                            </div>
+                            <div class="terminal-body" id="terminal-body-el">
+                                <div class="terminal-line"><span class="terminal-msg">Initializing log tail...</span></div>
+                            </div>
                         </div>
                     </div>
-                    <div class="terminal-body" id="terminal-body-el">
-                        <!-- Streamed console log lines -->
-                        <div class="terminal-line"><span class="terminal-msg">Initializing log tail...</span></div>
-                    </div>
                 </div>
-            </div>
-        </div>
 
-        <!-- Tab 5: Analytics Charts -->
-        <div id="tab-analytics" class="tab-content">
-            <div class="terminal-grid">
-                <div class="glass-panel">
-                    <div class="section-title">E2E Latency Performance Trend (p95)</div>
-                    <div class="chart-box">
-                        <canvas id="latencyChart" style="width: 100%; height: 100%;"></canvas>
+                <!-- Tab 5: Analytics Charts Pane -->
+                <div id="tab-analytics" class="tab-content">
+                    <div class="charts-grid">
+                        <div class="glass-panel">
+                            <div class="section-title">E2E Latency Performance Trend (p95)</div>
+                            <div class="chart-box">
+                                <canvas id="latencyChart"></canvas>
+                            </div>
+                        </div>
+                        <div class="glass-panel">
+                            <div class="section-title">Staging Ticks Counter</div>
+                            <div class="chart-box">
+                                <canvas id="volumeChart"></canvas>
+                            </div>
+                        </div>
                     </div>
                 </div>
-                <div class="glass-panel">
-                    <div class="section-title">Staging Ticks Counter</div>
-                    <div class="chart-box">
-                        <canvas id="volumeChart" style="width: 100%; height: 100%;"></canvas>
-                    </div>
-                </div>
-            </div>
-        </div>
 
+            </div>
+        </main>
+        
     </div>
 
-    <!-- Toast Notifications -->
+    <!-- Toast Notifications Container -->
     <div class="toast-container" id="toast-container"></div>
 
-    <script>
-        // Global variables
-        let soundEnabled = true;
-        let activeTab = 'tab-terminal';
-        let watchlistData = [];
-        let latencyChartInstance = null;
-        let volumeChartInstance = null;
-        let rawLogLines = [];
-        let currentLogFilter = 'all';
-
-        // Latency and tick buffers for Charts
-        const latencyDataBuffer = [];
-        const tickLabelsBuffer = [];
-        const ticksCounterData = {};
-
-        // Audio Context for programmatically generated Synthesizer alerts
-        const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-
-        function playAlert(type) {
-            if (!soundEnabled) return;
-            try {
-                if (audioCtx.state === 'suspended') {
-                    audioCtx.resume();
-                }
-                
-                const osc = audioCtx.createOscillator();
-                const gain = audioCtx.createGain();
-                osc.connect(gain);
-                gain.connect(audioCtx.destination);
-                
-                if (type === 'success') {
-                    // Sweet double high chime (cash register type)
-                    osc.type = 'triangle';
-                    osc.frequency.setValueAtTime(880, audioCtx.currentTime); // A5
-                    gain.gain.setValueAtTime(0.15, audioCtx.currentTime);
-                    osc.start();
-                    osc.stop(audioCtx.currentTime + 0.1);
-                    
-                    const osc2 = audioCtx.createOscillator();
-                    const gain2 = audioCtx.createGain();
-                    osc2.connect(gain2);
-                    gain2.connect(audioCtx.destination);
-                    osc2.type = 'triangle';
-                    osc2.frequency.setValueAtTime(1320, audioCtx.currentTime + 0.08); // E6
-                    gain2.gain.setValueAtTime(0.15, audioCtx.currentTime + 0.08);
-                    osc2.start(audioCtx.currentTime + 0.08);
-                    osc2.stop(audioCtx.currentTime + 0.25);
-                } 
-                else if (type === 'error') {
-                    // Double low warning buzz
-                    osc.type = 'sawtooth';
-                    osc.frequency.setValueAtTime(130, audioCtx.currentTime); // C3
-                    gain.gain.setValueAtTime(0.2, audioCtx.currentTime);
-                    osc.start();
-                    gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.3);
-                    osc.stop(audioCtx.currentTime + 0.35);
-                }
-                else if (type === 'warning') {
-                    // Medium sweep alarm
-                    osc.type = 'sine';
-                    osc.frequency.setValueAtTime(440, audioCtx.currentTime);
-                    osc.frequency.linearRampToValueAtTime(880, audioCtx.currentTime + 0.3);
-                    gain.gain.setValueAtTime(0.15, audioCtx.currentTime);
-                    gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.3);
-                    osc.start();
-                    osc.stop(audioCtx.currentTime + 0.35);
-                }
-                else if (type === 'connect') {
-                    // High-pitched pleasant bleep
-                    osc.type = 'sine';
-                    osc.frequency.setValueAtTime(1000, audioCtx.currentTime);
-                    gain.gain.setValueAtTime(0.1, audioCtx.currentTime);
-                    gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.15);
-                    osc.start();
-                    osc.stop(audioCtx.currentTime + 0.18);
-                }
-            } catch (e) {
-                console.error("Audio generation failed: ", e);
-            }
-        }
-
-        // Initialize Websocket
-        const wsProtocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
-        const ws = new WebSocket(`${wsProtocol}//${location.host}/ws`);
-        
-        ws.onopen = () => {
-            document.getElementById('connection-status').innerHTML = '<span class="status-dot"></span> Websocket Connected';
-            document.getElementById('connection-status').className = 'badge badge-success';
-            showToast("Trading Terminal connected to WebSocket.", "success");
-            playAlert('connect');
-        };
-
-        ws.onclose = () => {
-            document.getElementById('connection-status').innerHTML = '<span class="status-dot"></span> Disconnected';
-            document.getElementById('connection-status').className = 'badge badge-danger';
-            showToast("WebSocket channel disconnected. Reconnecting...", "error");
-            playAlert('error');
-        };
-
-        ws.onmessage = (event) => {
-            const data = JSON.parse(event.data);
-            if (data.type === 'update') {
-                updateLiveFeed(data);
-                updateSystemStats(data);
-                updateChartsData(data);
-            } else if (data.type === 'event') {
-                // Instantly update prices, stats, and charts from EventBus payload
-                updateLiveFeed(data);
-                updateSystemStats(data);
-                updateChartsData(data);
-
-                // Process high-frequency event alerts
-                const ev = data.event;
-                if (ev && ev.type) {
-                    if (ev.type === 'market_data.circuit_hit') {
-                        showToast(`⚡ CIRCUIT LIMIT HIT: ${ev.data.symbol} is at upper limit!`, "warn");
-                        playAlert('warning');
-                    } else if (ev.type === 'strategy.signal') {
-                        showToast(`🎯 Signal Generated: ${ev.data.symbol} trigger price reached!`, "success");
-                        playAlert('success');
-                        fetchSecondaryInfo();
-                    } else if (ev.type === 'order.submitted') {
-                        showToast(`📤 Order Staged: Submitting ${ev.data.symbol} (${ev.data.quantity} shares)`, "info");
-                        playAlert('connect');
-                        fetchSecondaryInfo();
-                        fetchSystemHealth();
-                    } else if (ev.type === 'order.executed') {
-                        showToast(`✅ Order Executed: ${ev.data.symbol} ${ev.data.quantity} @ ${ev.data.price}`, "success");
-                        playAlert('success');
-                        fetchSecondaryInfo();
-                        fetchSystemHealth();
-                    } else if (ev.type === 'order.failed') {
-                        showToast(`❌ Order Failed: ${ev.data.symbol} - ${ev.data.error || 'Unknown error'}`, "error");
-                        playAlert('error');
-                        fetchSecondaryInfo();
-                        fetchSystemHealth();
-                    } else if (ev.type === 'risk.kill_switch') {
-                        showToast(`🚨 CRITICAL: Kill Switch Activated! ${ev.data.reason || ''}`, "error");
-                        playAlert('error');
-                        fetchSystemHealth();
-                    }
-                }
-            }
-        };
-
-        // Switch Active Tab
-        function switchTab(tabId) {
-            document.querySelectorAll('.tab-btn').forEach(btn => {
-                btn.classList.remove('active');
-            });
-            document.querySelectorAll('.tab-content').forEach(content => {
-                content.classList.remove('active');
-            });
-
-            // Find clicked button based on tabId mapping
-            const btnIndex = {
-                'tab-terminal': 0,
-                'tab-watchlist': 1,
-                'tab-browser': 2,
-                'tab-logs': 3,
-                'tab-analytics': 4
-            }[tabId];
-
-            document.querySelectorAll('.tab-btn')[btnIndex].classList.add('active');
-            document.getElementById(tabId).classList.add('active');
-            activeTab = tabId;
-
-            // Trigger action on tab show
-            if (tabId === 'tab-browser') {
-                refreshBrowserScreenshot();
-            } else if (tabId === 'tab-logs') {
-                fetchConsoleLogs();
-            } else if (tabId === 'tab-analytics') {
-                renderCharts();
-            }
-        }
-
-        // Toggle sound alerts
-        function toggleSound() {
-            soundEnabled = !soundEnabled;
-            const btn = document.getElementById('sound-btn');
-            if (soundEnabled) {
-                btn.classList.add('sound-on');
-                btn.textContent = '🔊';
-                showToast("Sound FX activated.");
-                playAlert('connect');
-            } else {
-                btn.classList.remove('sound-on');
-                btn.textContent = '🔇';
-                showToast("Sound FX muted.");
-            }
-        }
-
-        // Floating Toast Alerts Helper
-        function showToast(message, type = 'info') {
-            const container = document.getElementById('toast-container');
-            const toast = document.createElement('div');
-            toast.className = `toast toast-${type}`;
-            
-            let icon = '🔔';
-            if (type === 'success') icon = '✅';
-            if (type === 'error') icon = '❌';
-            if (type === 'warn') icon = '⚠️';
-
-            toast.innerHTML = `
-                <div style="display:flex; align-items:center; gap:0.75rem;">
-                    <span>${icon}</span>
-                    <span>${message}</span>
-                </div>
-                <span style="margin-left:1.5rem; cursor:pointer; font-size:0.75rem; opacity:0.6;" onclick="this.parentElement.remove()">✕</span>
-            `;
-            container.appendChild(toast);
-            
-            // Auto close after 4s
-            setTimeout(() => {
-                toast.style.opacity = '0';
-                toast.style.transition = 'opacity 0.4s ease';
-                setTimeout(() => toast.remove(), 400);
-            }, 4000);
-        }
-
-        // Load watchlist configuration (Saved in watchlist.yaml)
-        async function loadWatchlist() {
-            try {
-                const response = await fetch('/api/watchlist/config');
-                const data = await response.json();
-                watchlistData = data.symbols || [];
-                renderWatchlistEditor();
-                showToast("YAML Watchlist synced successfully.");
-            } catch (err) {
-                showToast("Failed to fetch watchlist config.", "error");
-            }
-        }
-
-        // Render editor items
-        function renderWatchlistEditor() {
-            const tbody = document.getElementById('watchlist-editable-tbody');
-            tbody.innerHTML = '';
-            
-            if (watchlistData.length === 0) {
-                tbody.innerHTML = `<tr><td colspan="8" style="text-align: center; color: var(--text-muted)">No symbols configured. Use the fields above to add one.</td></tr>`;
-                return;
-            }
-
-            watchlistData.forEach((item, index) => {
-                const tr = document.createElement('tr');
-                const stratName = item.strategy === 'ipo_daily_circuit' ? 'IPO Staging' : 'Breakout';
-                tr.innerHTML = `
-                    <td><span class="symbol-badge">${item.symbol}</span></td>
-                    <td>
-                        <input type="number" class="table-input" value="${item.quantity}" min="1" 
-                            onchange="updateLocalItem(${index}, 'quantity', this.value)">
-                    </td>
-                    <td>
-                        <input type="number" class="table-input" value="${item.prev_close}" min="0.1" step="0.1" 
-                            onchange="updateLocalItem(${index}, 'prev_close', this.value)">
-                    </td>
-                    <td>
-                        <input type="number" class="table-input" value="${item.circuit_percentage}" min="1" max="100" 
-                            onchange="updateLocalItem(${index}, 'circuit_percentage', this.value)">
-                    </td>
-                    <td><span style="font-weight:600; font-size: 0.8rem; color:var(--text-secondary);">${stratName}</span></td>
-                    <td>
-                        <input type="checkbox" ${item.is_ipo ? 'checked' : ''} style="cursor:pointer; scale:1.1;"
-                            onchange="updateLocalItem(${index}, 'is_ipo', this.checked)">
-                    </td>
-                    <td>
-                        <span class="badge ${item.enabled ? 'badge-success' : 'badge-danger'}" style="cursor:pointer; min-width:80px;"
-                            onclick="toggleItemEnabled(${index})">
-                            ${item.enabled ? 'Enabled' : 'Disabled'}
-                        </span>
-                    </td>
-                    <td>
-                        <button class="btn btn-danger" style="padding: 0.3rem 0.6rem; font-size: 0.725rem" 
-                            onclick="deleteLocalItem(${index})">Delete</button>
-                    </td>
-                `;
-                tbody.appendChild(tr);
-            });
-        }
-
-        function updateLocalItem(index, key, val) {
-            if (key === 'quantity') watchlistData[index].quantity = parseInt(val) || 10;
-            else if (key === 'prev_close') watchlistData[index].prev_close = parseFloat(val) || 0.0;
-            else if (key === 'circuit_percentage') watchlistData[index].circuit_percentage = parseFloat(val) || 15.0;
-            else if (key === 'is_ipo') watchlistData[index].is_ipo = !!val;
-        }
-
-        function toggleItemEnabled(index) {
-            watchlistData[index].enabled = !watchlistData[index].enabled;
-            renderWatchlistEditor();
-        }
-
-        function deleteLocalItem(index) {
-            const sym = watchlistData[index].symbol;
-            watchlistData.splice(index, 1);
-            renderWatchlistEditor();
-            showToast(`Deleted ${sym} locally. Click "Save to watchlist.yaml" to apply permanently.`, "warn");
-            playAlert('warning');
-        }
-
-        // Add item from form
-        function addNewWatchlistItem() {
-            const symbolEl = document.getElementById('form-symbol');
-            const qtyEl = document.getElementById('form-qty');
-            const prevEl = document.getElementById('form-prev');
-            const circuitEl = document.getElementById('form-circuit');
-            const strategyEl = document.getElementById('form-strategy');
-
-            const symbol = symbolEl.value.trim().toUpperCase();
-            const quantity = parseInt(qtyEl.value);
-            const prev_close = parseFloat(prevEl.value);
-            const circuit_percentage = parseFloat(circuitEl.value) || 15.0;
-            const strategy = strategyEl.value;
-
-            if (!symbol || isNaN(quantity) || isNaN(prev_close)) {
-                showToast("Please provide Symbol, Quantity, and Prev Close.", "warn");
-                playAlert('warning');
-                return;
-            }
-
-            if (watchlistData.some(item => item.symbol === symbol)) {
-                showToast(`${symbol} already exists in watchlist.`, "warn");
-                playAlert('warning');
-                return;
-            }
-
-            watchlistData.push({
-                symbol: symbol,
-                quantity: quantity,
-                prev_close: prev_close,
-                circuit_percentage: circuit_percentage,
-                strategy: strategy,
-                is_ipo: strategy === 'ipo_daily_circuit',
-                enabled: true
-            });
-
-            // Reset inputs
-            symbolEl.value = '';
-            qtyEl.value = '10';
-            prevEl.value = '';
-            circuitEl.value = '15';
-
-            renderWatchlistEditor();
-            showToast(`Added ${symbol} locally.`, "success");
-            playAlert('connect');
-        }
-
-        // Save back to YAML
-        async function saveWatchlistToServer() {
-            try {
-                const response = await fetch('/api/watchlist/config', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ symbols: watchlistData })
-                });
-                const res = await response.json();
-                if (res.status === 'success') {
-                    showToast("Watchlist written to watchlist.yaml successfully!", "success");
-                    playAlert('success');
-                } else {
-                    showToast("Failed to write to watchlist.yaml: " + res.message, "error");
-                    playAlert('error');
-                }
-            } catch (err) {
-                showToast("Network failure saving watchlist config.", "error");
-                playAlert('error');
-            }
-        }
-
-        // Arm Staging Execution
-        async function armAndExecuteBot() {
-            const btn = document.querySelector('.btn-arm-system');
-            const oldText = btn.textContent;
-            btn.textContent = "ARMING ENGINE...";
-            btn.style.pointerEvents = 'none';
-            btn.style.opacity = '0.6';
-
-            try {
-                const response = await fetch('/api/execute', { method: 'POST' });
-                const res = await response.json();
-                if (res.status === 'success') {
-                    showToast("System armed! Staging modules running headlessly.", "success");
-                    playAlert('success');
-                    
-                    btn.textContent = "SYSTEM ARMED";
-                    btn.style.background = 'linear-gradient(135deg, var(--accent-emerald) 0%, #065f46 100%)';
-                    btn.style.boxShadow = '0 0 30px rgba(16, 185, 129, 0.4)';
-                    
-                    setTimeout(() => {
-                        btn.textContent = "Arm Preemptive Staging";
-                        btn.style.background = '';
-                        btn.style.boxShadow = '';
-                        btn.style.opacity = '1';
-                        btn.style.pointerEvents = 'auto';
-                    }, 4000);
-                } else {
-                    showToast("Failed to arm system: " + res.message, "error");
-                    playAlert('error');
-                    btn.textContent = oldText;
-                    btn.style.opacity = '1';
-                    btn.style.pointerEvents = 'auto';
-                }
-            } catch (err) {
-                showToast("Connection timed out arming preemptive engine.", "error");
-                playAlert('error');
-                btn.textContent = oldText;
-                btn.style.opacity = '1';
-                btn.style.pointerEvents = 'auto';
-            }
-        }
-
-        // Real-time log file viewer
-        async function fetchConsoleLogs() {
-            try {
-                const response = await fetch('/api/logs');
-                const data = await response.json();
-                rawLogLines = data.logs || [];
-                applyLogFilters();
-            } catch (err) {
-                console.error("Failed to load logs", err);
-            }
-        }
-
-        function setLogFilter(filter) {
-            currentLogFilter = filter;
-            document.querySelectorAll('.terminal-btn-filter').forEach(btn => {
-                btn.classList.remove('active');
-            });
-            
-            // Map filter text to button child index
-            const index = { 'all': 0, 'debug': 1, 'info': 2, 'warning': 3, 'error': 4 }[filter];
-            document.querySelectorAll('.terminal-btn-filter')[index].classList.add('active');
-            applyLogFilters();
-        }
-
-        function applyLogFilters() {
-            const tbody = document.getElementById('terminal-body-el');
-            tbody.innerHTML = '';
-            
-            const searchVal = document.getElementById('log-search-input').value.toLowerCase();
-            
-            let filtered = rawLogLines;
-            
-            // Filter by level
-            if (currentLogFilter !== 'all') {
-                filtered = filtered.filter(line => {
-                    const lineLower = line.toLowerCase();
-                    // Match level tags in json logs e.g. "level": "warning" or "level": "error"
-                    return lineLower.includes(`"level": "${currentLogFilter}"`) || lineLower.includes(`"level": "${currentLogFilter === 'warning' ? 'warn' : currentLogFilter}"`);
-                });
-            }
-
-            // Filter by search query
-            if (searchVal) {
-                filtered = filtered.filter(line => line.toLowerCase().includes(searchVal));
-            }
-
-            if (filtered.length === 0) {
-                tbody.innerHTML = `<div class="terminal-line"><span class="terminal-msg" style="color:var(--text-muted)">No matching log entries found.</span></div>`;
-                return;
-            }
-
-            filtered.forEach(line => {
-                const div = document.createElement('div');
-                div.className = 'terminal-line';
-                
-                try {
-                    const parsed = JSON.parse(line);
-                    const timestamp = parsed.timestamp ? new Date(parsed.timestamp).toLocaleTimeString() : '';
-                    const level = parsed.level || 'info';
-                    
-                    // Build metadata fields representation
-                    let meta = '';
-                    for (const [k, v] of Object.entries(parsed)) {
-                        if (['timestamp', 'level', 'event', 'logger'].includes(k)) continue;
-                        meta += ` <span style="color:var(--text-secondary)">${k}=</span><span style="color:var(--accent-cyan)">${JSON.stringify(v)}</span>`;
-                    }
-
-                    div.innerHTML = `
-                        <span class="terminal-time">[${timestamp}]</span>
-                        <span class="terminal-level level-${level.toLowerCase()}">${level}</span>
-                        <span class="terminal-msg"><strong>${parsed.event || ''}</strong>${meta}</span>
-                    `;
-                } catch (e) {
-                    // Fallback to text matching
-                    let levelClass = 'level-info';
-                    let levelText = 'INFO';
-                    if (line.toLowerCase().includes('error')) { levelClass = 'level-error'; levelText = 'ERROR'; }
-                    else if (line.toLowerCase().includes('warn')) { levelClass = 'level-warn'; levelText = 'WARN'; }
-                    else if (line.toLowerCase().includes('debug')) { levelClass = 'level-debug'; levelText = 'DEBUG'; }
-
-                    div.innerHTML = `
-                        <span class="terminal-level ${levelClass}">${levelText}</span>
-                        <span class="terminal-msg">${line}</span>
-                    `;
-                }
-                tbody.appendChild(div);
-            });
-
-            // Scroll to bottom
-            tbody.scrollTop = tbody.scrollHeight;
-        }
-
-        // Live screen capture refresh
-        async function refreshBrowserScreenshot() {
-            const timestampEl = document.getElementById('screenshot-timestamp');
-            timestampEl.textContent = 'LAST UPDATE: CAPTURING...';
-            
-            const img = document.getElementById('browser-screenshot-img');
-            // Cache breaker URL query parameter
-            img.src = `/api/screenshot?cb=${Date.now()}`;
-            
-            img.onload = () => {
-                timestampEl.textContent = `LAST UPDATE: ${new Date().toLocaleTimeString()}`;
-            };
-        }
-
-        // Update Stats values
-        function updateSystemStats(d) {
-            if (d.metrics) {
-                // Fallback to internal pipeline detection latency if no end-to-end latency measurements exist yet
-                const e2e = d.metrics.end_to_end_latency && d.metrics.end_to_end_latency.count > 0 ? d.metrics.end_to_end_latency : d.metrics.detection_latency;
-                if (e2e) {
-                    const p95Val = e2e.p95 || 0;
-                    document.getElementById('stat-latency').textContent = `${p95Val.toFixed(1)} ms`;
-                    
-                    const label = document.getElementById('stat-latency').nextElementSibling;
-                    if (d.metrics.end_to_end_latency && d.metrics.end_to_end_latency.count > 0) {
-                        label.textContent = "EventBus E2E Loop";
-                    } else {
-                        label.textContent = "Bot Pipeline Latency";
-                    }
-
-                    // Color code latency card based on response speed
-                    const card = document.getElementById('stat-latency').parentElement;
-                    card.className = 'glass-panel stat-card'; // clear previous
-                    if (p95Val <= 5.0) card.classList.add('success');
-                    else if (p95Val <= 15.0) card.classList.add('amber');
-                    else card.classList.add('danger');
-                }
-            }
-            if (d.counters) {
-                const executed = d.counters.orders_executed || 0;
-                const oldVal = parseInt(document.getElementById('stat-orders').textContent);
-                document.getElementById('stat-orders').textContent = executed;
-                // Play audio cue if orders executed count increases
-                if (executed > oldVal && oldVal > 0) {
-                    playAlert('success');
-                    showToast("Order Executed successfully on TMS!", "success");
-                }
-            }
-        }
-
-        // Keep local charts data buffer and update them
-        function updateChartsData(d) {
-            if (d.metrics) {
-                const e2e = d.metrics.end_to_end_latency && d.metrics.end_to_end_latency.count > 0 ? d.metrics.end_to_end_latency : d.metrics.detection_latency;
-                if (e2e) {
-                    const timeLabel = new Date(d.timestamp).toLocaleTimeString();
-                    
-                    latencyDataBuffer.push(e2e.p95 || 0.0);
-                    tickLabelsBuffer.push(timeLabel);
-
-                    if (latencyDataBuffer.length > 25) {
-                        latencyDataBuffer.shift();
-                        tickLabelsBuffer.shift();
-                    }
-
-                    if (activeTab === 'tab-analytics') {
-                        renderCharts();
-                    }
-                }
-            }
-
-            if (d.watchlist) {
-                d.watchlist.forEach(s => {
-                    if (s.volume > 0) {
-                        ticksCounterData[s.symbol] = s.volume;
-                    }
-                });
-            }
-        }
-
-        // Render Chart.js analytics graphs
-        function renderCharts() {
-            if (!latencyChartInstance) {
-                const ctx = document.getElementById('latencyChart').getContext('2d');
-                latencyChartInstance = new Chart(ctx, {
-                    type: 'line',
-                    data: {
-                        labels: tickLabelsBuffer,
-                        datasets: [{
-                            label: 'E2E Latency (p95 ms)',
-                            data: latencyDataBuffer,
-                            borderColor: '#00f0ff',
-                            backgroundColor: 'rgba(0, 240, 255, 0.1)',
-                            borderWidth: 2,
-                            fill: true,
-                            tension: 0.3
-                        }]
-                    },
-                    options: {
-                        responsive: true,
-                        maintainAspectRatio: false,
-                        scales: {
-                            y: { grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#94a3b8' } },
-                            x: { grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#94a3b8' } }
-                        },
-                        plugins: {
-                            legend: { display: false }
-                        }
-                    }
-                });
-            } else {
-                latencyChartInstance.data.labels = tickLabelsBuffer;
-                latencyChartInstance.data.datasets[0].data = latencyDataBuffer;
-                latencyChartInstance.update('none');
-            }
-
-            // Show all watchlist symbols on the chart even if volume is 0
-            const symbols = watchlistData.map(item => item.symbol);
-            const volumes = symbols.map(sym => ticksCounterData[sym] || 0);
-
-            if (!volumeChartInstance) {
-                const ctxVol = document.getElementById('volumeChart').getContext('2d');
-                volumeChartInstance = new Chart(ctxVol, {
-                    type: 'bar',
-                    data: {
-                        labels: symbols,
-                        datasets: [{
-                            label: 'Traded Volume',
-                            data: volumes,
-                            backgroundColor: 'rgba(99, 102, 241, 0.65)',
-                            borderColor: '#6366f1',
-                            borderWidth: 1
-                        }]
-                    },
-                    options: {
-                        responsive: true,
-                        maintainAspectRatio: false,
-                        scales: {
-                            y: { grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#94a3b8' } },
-                            x: { grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#94a3b8' } }
-                        },
-                        plugins: {
-                            legend: { display: false }
-                        }
-                    }
-                });
-            } else {
-                volumeChartInstance.data.labels = symbols;
-                volumeChartInstance.data.datasets[0].data = volumes;
-                volumeChartInstance.update('none');
-            }
-        }
-
-        // Live Feed Updates (Watcher table) with low latency DOM flashing
-        function updateLiveFeed(data) {
-            if (!data.watchlist) return;
-            const tbody = document.getElementById('live-watcher-tbody');
-            
-            if (data.watchlist.length === 0) {
-                tbody.innerHTML = `<tr><td colspan="7" style="text-align: center; color: var(--text-secondary)">No active quote watchers running. Arm system to begin monitoring.</td></tr>`;
-                return;
-            }
-
-            // Remove placeholder if present
-            const firstRow = tbody.firstElementChild;
-            if (firstRow && firstRow.cells.length === 1) {
-                tbody.innerHTML = '';
-            }
-
-            // Map existing row elements by symbol
-            const existingRows = {};
-            Array.from(tbody.children).forEach(row => {
-                const symBadge = row.querySelector('.symbol-badge');
-                if (symBadge) {
-                    existingRows[symBadge.textContent.trim()] = row;
-                }
-            });
-
-            data.watchlist.forEach(s => {
-                const displayLtp = s.ltp > 0 ? s.ltp : s.prev_close;
-                const pctChange = (s.prev_close > 0 && s.ltp > 0) ? ((s.ltp - s.prev_close) / s.prev_close * 100) : 0.0;
-                const totalDepth = s.bid_quantity + s.ask_quantity;
-                const bidRatio = totalDepth > 0 ? (s.bid_quantity / totalDepth * 100) : 0;
-                
-                const statusText = s.is_at_upper_circuit ? 'CIRCUIT LIMIT HIT' : 'MONITORING TICKS';
-                const badgeClass = s.is_at_upper_circuit ? 'badge-danger' : 'badge-success';
-
-                const rowId = `row-${s.symbol}`;
-                let row = existingRows[s.symbol];
-
-                if (!row) {
-                    // Create new row
-                    row = document.createElement('tr');
-                    row.id = rowId;
-                    row.innerHTML = `
-                        <td><span class="symbol-badge">${s.symbol}</span></td>
-                        <td class="price-cell">
-                            <strong class="ltp-val" style="font-size:1rem;">${displayLtp.toFixed(1)}</strong> 
-                            <span class="change-val" style="font-size:0.75rem; font-weight:600; margin-left:0.25rem;"></span>
-                        </td>
-                        <td class="bid-qty-cell" style="font-family:var(--font-mono); font-weight:500;">${s.bid_quantity.toLocaleString()}</td>
-                        <td class="depth-cell">
-                            <div class="depth-bar-container">
-                                <div class="depth-bar-fill" style="width: ${bidRatio}%"></div>
-                                <span class="depth-text">${bidRatio.toFixed(0)}% BID</span>
-                            </div>
-                        </td>
-                        <td class="ask-qty-cell" style="font-family:var(--font-mono); font-weight:500;">${s.ask_quantity.toLocaleString()}</td>
-                        <td class="circuit-cell">
-                            <span style="color: var(--accent-cyan); font-family:var(--font-mono); font-weight:600;">
-                                ${s.upper_circuit.toFixed(1)}
-                            </span>
-                        </td>
-                        <td class="status-cell">
-                            <span class="badge ${badgeClass}">
-                                <span class="status-dot"></span> <span class="status-txt">${statusText}</span>
-                            </span>
-                        </td>
-                    `;
-                    tbody.appendChild(row);
-                }
-
-                // Update row values and trigger flash if changed
-                const ltpEl = row.querySelector('.ltp-val');
-                const changeEl = row.querySelector('.change-val');
-                const bidEl = row.querySelector('.bid-qty-cell');
-                const askEl = row.querySelector('.ask-qty-cell');
-                const depthBar = row.querySelector('.depth-bar-fill');
-                const depthText = row.querySelector('.depth-text');
-                const statusBadge = row.querySelector('.status-cell .badge');
-                const statusTxt = row.querySelector('.status-txt');
-
-                // Check LTP change
-                const oldLtp = parseFloat(ltpEl.textContent);
-                const newLtp = parseFloat(displayLtp.toFixed(1));
-                if (oldLtp !== newLtp) {
-                    ltpEl.textContent = displayLtp.toFixed(1);
-                    const cell = ltpEl.parentElement;
-                    cell.classList.remove('flash-up', 'flash-down');
-                    void cell.offsetWidth; // Trigger reflow
-                    cell.classList.add(newLtp >= oldLtp ? 'flash-up' : 'flash-down');
-                }
-
-                // Update percent change element
-                changeEl.textContent = `${pctChange >= 0 ? '▲' : '▼'} ${Math.abs(pctChange).toFixed(1)}%`;
-                changeEl.style.color = pctChange >= 0 ? 'var(--accent-emerald)' : 'var(--accent-rose)';
-
-                // Check Bid Qty change
-                const oldBid = parseInt(bidEl.textContent.replace(/,/g, '')) || 0;
-                if (oldBid !== s.bid_quantity) {
-                    bidEl.textContent = s.bid_quantity.toLocaleString();
-                    bidEl.classList.remove('flash-info');
-                    void bidEl.offsetWidth; // Trigger reflow
-                    bidEl.classList.add('flash-info');
-                }
-
-                // Check Ask Qty change
-                const oldAsk = parseInt(askEl.textContent.replace(/,/g, '')) || 0;
-                if (oldAsk !== s.ask_quantity) {
-                    askEl.textContent = s.ask_quantity.toLocaleString();
-                    askEl.classList.remove('flash-info');
-                    void askEl.offsetWidth; // Trigger reflow
-                    askEl.classList.add('flash-info');
-                }
-
-                // Update depth bar
-                depthBar.style.width = `${bidRatio}%`;
-                depthText.textContent = `${bidRatio.toFixed(0)}% BID`;
-
-                // Update status badge
-                if (statusTxt.textContent !== statusText) {
-                    statusTxt.textContent = statusText;
-                    statusBadge.className = `badge ${badgeClass}`;
-                }
-            });
-
-            // Clean up rows that are no longer in watchlist
-            const currentSymbols = new Set(data.watchlist.map(s => s.symbol));
-            Array.from(tbody.children).forEach(row => {
-                const symBadge = row.querySelector('.symbol-badge');
-                if (symBadge && !currentSymbols.has(symBadge.textContent.trim())) {
-                    row.remove();
-                }
-            });
-        }
-
-        // Load Risk Panel and System status info
-        async function fetchSystemHealth() {
-            try {
-                const response = await fetch('/api/risk');
-                const d = await response.json();
-                
-                const badge = document.getElementById('risk-badge');
-                if (d.kill_switch_active) {
-                    badge.innerHTML = '<span class="status-dot"></span> KILL SWITCH HALT';
-                    badge.className = 'badge badge-danger';
-                } else {
-                    badge.innerHTML = '<span class="status-dot"></span> Risk Guard Active';
-                    badge.className = 'badge badge-success';
-                }
-
-                // Update exposure card
-                document.getElementById('stat-exposure').textContent = `${d.current_exposure ? d.current_exposure.toLocaleString() : 0} / ${d.max_exposure ? d.max_exposure.toLocaleString() : 100000}`;
-            } catch (err) {
-                console.error(err);
-            }
-        }
-
-        async function emergencyKillSwitch() {
-            if (confirm("CRITICAL: Force activation of system-wide trading kill switch? Staging triggers and active execution loops will be halted immediately!")) {
-                await fetch('/api/kill-switch/activate', { method: 'POST' });
-                showToast("CRITICAL: Kill switch activated! Automated trading loops HALTED.", "error");
-                playAlert('error');
-                fetchSystemHealth();
-            }
-        }
-
-        async function resetKillSwitch() {
-            await fetch('/api/kill-switch/deactivate', { method: 'POST' });
-            showToast("System Reset. Emergency Kill Switch deactivated.");
-            playAlert('connect');
-            fetchSystemHealth();
-        }
-
-        // Fetch logs and logs/signals counts
-        async function fetchSecondaryInfo() {
-            try {
-                // Signals
-                const sigResponse = await fetch('/api/signals');
-                const sigData = await sigResponse.json();
-                const sigTbody = document.getElementById('signals-tbody-terminal');
-                if (sigData.signals && sigData.signals.length > 0) {
-                    sigTbody.innerHTML = '';
-                    sigData.signals.slice(0, 10).forEach(s => {
-                        const time = new Date(s.created_at).toLocaleTimeString();
-                        sigTbody.innerHTML += `
-                            <tr>
-                                <td>${time}</td>
-                                <td><span class="symbol-badge">${s.symbol}</span></td>
-                                <td>${s.trigger_price.toFixed(1)}</td>
-                                <td><span style="color:var(--accent-cyan); font-weight:700;">${s.action.toUpperCase()}</span></td>
-                            </tr>
-                        `;
-                    });
-                }
-                
-                // Orders
-                const ordResponse = await fetch('/api/orders');
-                const ordData = await ordResponse.json();
-                const ordTbody = document.getElementById('orders-tbody-terminal');
-                if (ordData.orders && ordData.orders.length > 0) {
-                    ordTbody.innerHTML = '';
-                    ordData.orders.slice(0, 10).forEach(o => {
-                        const time = new Date(o.created_at).toLocaleTimeString();
-                        const statColor = o.status === 'executed' || o.status === 'submitted' ? 'var(--accent-emerald)' : 'var(--accent-rose)';
-                        ordTbody.innerHTML += `
-                            <tr>
-                                <td>${time}</td>
-                                <td><span class="symbol-badge">${o.symbol}</span></td>
-                                <td>${o.quantity}@${o.price.toFixed(1)}</td>
-                                <td><span style="color:${statColor}; font-weight:700;">${o.status.toUpperCase()}</span></td>
-                            </tr>
-                        `;
-                    });
-                }
-            } catch (err) {
-                console.error(err);
-            }
-        }
-
-        async function fetchUptime() {
-            try {
-                const r = await fetch('/api/health');
-                const d = await r.json();
-                document.getElementById('stat-uptime').textContent = d.uptime || 'unknown';
-            } catch (e) {
-                console.error(e);
-            }
-        }
-
-        // Init and refresh loops
-        loadWatchlist();
-        fetchSystemHealth();
-        fetchSecondaryInfo();
-        fetchUptime();
-
-        setInterval(fetchSystemHealth, 3000);
-        setInterval(fetchSecondaryInfo, 2500);
-        setInterval(fetchUptime, 5000);
-
-        // Fetch logs periodically only when active logs tab is open to optimize bandwith
-        setInterval(() => {
-            if (activeTab === 'tab-logs') {
-                fetchConsoleLogs();
-            }
-        }, 1500);
-        
-    </script>
+    <!-- Core App Module Scripts -->
+    <script src="/static/js/app.js"></script>
+    <script src="/static/js/api.js"></script>
+    <script src="/static/js/watchlist.js"></script>
+    <script src="/static/js/terminal.js"></script>
+    <script src="/static/js/analytics.js"></script>
 </body>
 </html>

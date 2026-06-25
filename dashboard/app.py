@@ -93,6 +93,7 @@ def create_dashboard_app(bot_state: dict | None = None) -> FastAPI:
                         "price": o.price,
                         "status": o.status.value,
                         "created_at": o.created_at.replace(tzinfo=timezone.utc).isoformat() if o.created_at.tzinfo is None else o.created_at.isoformat(),
+                        "executed_at": o.executed_at.replace(tzinfo=timezone.utc).isoformat() if o.executed_at and o.executed_at.tzinfo is None else (o.executed_at.isoformat() if o.executed_at else None),
                         "latency_ms": o.latency_ms,
                     }
                     for o in recent
@@ -318,7 +319,7 @@ def create_dashboard_app(bot_state: dict | None = None) -> FastAPI:
                 await websocket.send_text(json.dumps(payload, default=str))
                 queue.task_done()
                 
-        except WebSocketDisconnect:
+        except (WebSocketDisconnect, RuntimeError):
             pass
         finally:
             if 'heartbeat_task' in locals():
