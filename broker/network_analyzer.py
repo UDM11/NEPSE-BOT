@@ -139,18 +139,27 @@ class NetworkAnalyzer:
                 auth_method=self._detect_ws_auth(url),
             )
 
+        def decode_payload(payload) -> str:
+            if isinstance(payload, bytes):
+                try:
+                    return payload.decode("utf-8", errors="ignore")
+                except Exception:
+                    return str(payload)
+            return str(payload)
+
         def on_frame_sent(payload):
+            payload_str = decode_payload(payload)
             self._ws_messages.append({
                 "direction": "sent",
                 "url": url,
-                "payload": str(payload)[:5000],
+                "payload": payload_str[:5000],
                 "timestamp": datetime.now(timezone.utc).isoformat(),
             })
             if len(self._ws_messages) > 500:
                 self._ws_messages = self._ws_messages[-500:]
 
         def on_frame_received(payload):
-            payload_str = str(payload)
+            payload_str = decode_payload(payload)
             self._ws_messages.append({
                 "direction": "received",
                 "url": url,
@@ -178,8 +187,16 @@ class NetworkAnalyzer:
             except Exception:
                 pass
 
+        def on_close():
+            logger.warning("websocket_closed", url=url)
+
+        def on_error(err):
+            logger.error("websocket_socket_error", url=url, error=str(err))
+
         ws.on("framesent", on_frame_sent)
         ws.on("framereceived", on_frame_received)
+        ws.on("close", on_close)
+        ws.on("socketerror", on_error)
 
     def _parse_naasa_quote(self, symbol: str, data: dict) -> dict[str, Any] | None:
         """Best-effort parse of Naasa X market data JSON."""

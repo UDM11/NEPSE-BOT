@@ -192,7 +192,7 @@ class NaasaBrokerClient(BrokerClient):
             qty_sel = self.selectors.get("order_quantity", "#OrdertxtQty")
             price_sel = self.selectors.get("order_price", "#OrdertxtPrice")
 
-            await self._page.wait_for_selector(symbol_sel, timeout=self.timeout)
+            await self._page.wait_for_selector(symbol_sel, timeout=self.selectors.get("interactive_timeout_ms", 5000))
 
             # Buy-only: always use buy tab and buy button
             buy_tab = self.selectors.get("buy_side_tab", "a.buy_frm_order")
@@ -233,6 +233,12 @@ class NaasaBrokerClient(BrokerClient):
 
         except Exception as exc:
             await self._capture_screenshot(f"naasa_order_error_{symbol}")
+            # Force page reload on placement failure to recover from frozen/broken DOM state
+            try:
+                logger.info("forcing_page_reload_on_placement_failure", symbol=symbol)
+                await self._page.reload(wait_until="domcontentloaded", timeout=15000)
+            except Exception as reload_err:
+                logger.warning("failed_to_reload_page_after_placement_failure", symbol=symbol, error=str(reload_err))
             raise BrokerError(f"Naasa X order failed: {exc}") from exc
 
     async def _submit_api_order(
@@ -359,17 +365,26 @@ class NaasaBrokerClient(BrokerClient):
             "direct_url",
             self._order_url or "https://x.naasasecurities.com.np/MarketOrder/Order",
         )
-        if "MarketOrder" in self._page.url:
+        is_frozen = False
+        if self._page:
+            try:
+                await asyncio.wait_for(self._page.evaluate("1"), timeout=1.5)
+            except Exception:
+                is_frozen = True
+                logger.warning("naasa_page_frozen_detected_forcing_reload")
+
+        if "MarketOrder" in self._page.url and not is_frozen:
             # Already on order page — just reset the form, no navigation needed
             reset_sel = self.selectors.get("reset_button", "#btnReset")
             try:
                 if await self._page.locator(reset_sel).count() > 0:
                     await self._page.click(reset_sel)
                     await asyncio.sleep(0.3)
+                    return
             except Exception:
                 pass
-        else:
-            await self._page.goto(order_url, wait_until="domcontentloaded")
+
+        await self._page.goto(order_url, wait_until="domcontentloaded", timeout=15000)
 
     async def _is_login_page(self) -> bool:
         if not self._page:
@@ -473,7 +488,8 @@ class NaasaBrokerClient(BrokerClient):
                             for (const el of elements) {
                                 const txt = el.innerText ? el.innerText.trim() : '';
                                 if (txt.includes('Low-High:')) {
-                                    const match = txt.match(/Low-High:\s*([\d\.,]+)\s*-\s*([\d\.,]+)/i);
+                                    const parentText = el.parentElement ? el.parentElement.innerText : el.innerText;
+                                    const match = parentText.match(/Low-High:\s*([\d\.,]+)\s*-\s*([\d\.,]+)/i);
                                     if (match) {
                                         high_limit = parse(match[2]);
                                         break;
@@ -525,10 +541,14 @@ class NaasaBrokerClient(BrokerClient):
                             return null;
                         }
                         const parse = v => parseFloat(String(v).replace(/,/g, '')) || 0;
+                        const parseI = v => parseInt(String(v).replace(/,/g, '')) || 0;
                         const rows = document.querySelectorAll('tr');
                         let prev_close = 0;
                         let ltp = 0;
                         let high_limit = 0;
+                        let volume = 0;
+                        let bid_quantity = 0;
+                        let ask_quantity = 0;
                         
                         for (const row of rows) {
                             const text = row.innerText.trim();
@@ -540,7 +560,7 @@ class NaasaBrokerClient(BrokerClient):
                             }
                         }
                         
-                        const elements = document.querySelectorAll('span, div, h1, h2, h3, h4, h5, h6, label');
+                        const elements = document.querySelectorAll('span, div, h1, h2, h3, h4, h5, h6, label, td');
                         for (const el of elements) {
                             const txt = el.innerText.trim().toUpperCase();
                             if ((txt === sym.toUpperCase() || txt.startsWith(sym.toUpperCase() + ' ')) && txt.length < 50) {
@@ -571,15 +591,84 @@ class NaasaBrokerClient(BrokerClient):
                         for (const el of elements) {
                             const txt = el.innerText ? el.innerText.trim() : '';
                             if (txt.includes('Low-High:')) {
-                                const match = txt.match(/Low-High:\s*([\d\.,]+)\s*-\s*([\d\.,]+)/i);
+                                const parentText = el.parentElement ? el.parentElement.innerText : el.innerText;
+                                const match = parentText.match(/Low-High:\s*([\d\.,]+)\s*-\s*([\d\.,]+)/i);
                                 if (match) {
                                     high_limit = parse(match[2]);
-                                    break;
+                                }
+                            }
+                            if (txt.toUpperCase().includes('VOLUME') && !txt.toUpperCase().includes('BID') && !txt.toUpperCase().includes('ASK')) {
+                                const parentText = el.parentElement ? el.parentElement.innerText : el.innerText;
+                                const match = parentText.match(/Volume:?\s*([\d,]+)/i) || parentText.match(/Volume\s*([\d,]+)/i);
+                                if (match) {
+                                    volume = parseI(match[1]);
+                                }
+                            }
+                        }
+
+                        // Parse bid/ask quantities from depth tables
+                        const tables = document.querySelectorAll('table');
+                        for (const table of tables) {
+                            const text = table.innerText.toLowerCase();
+                            if (text.includes('buy qty') || text.includes('buy quantity') || text.includes('bid qty') || text.includes('buy price')) {
+                                const tRows = table.querySelectorAll('tr');
+                                let sumQty = 0;
+                                let foundTotal = false;
+                                for (const r of tRows) {
+                                    const rText = r.innerText.toLowerCase();
+                                    if (rText.includes('total')) {
+                                        const cells = r.querySelectorAll('td, th');
+                                        for (const cell of cells) {
+                                            const val = parseI(cell.innerText);
+                                            if (val > bid_quantity) {
+                                                bid_quantity = val;
+                                                foundTotal = true;
+                                            }
+                                        }
+                                    } else {
+                                        const cells = r.querySelectorAll('td');
+                                        if (cells.length >= 2) {
+                                            const val2 = cells[1].innerText.trim();
+                                            const q = parseI(val2);
+                                            if (q > 0 && !val2.includes('.')) sumQty += q;
+                                        }
+                                    }
+                                }
+                                if (!foundTotal && sumQty > 0) {
+                                    bid_quantity = sumQty;
+                                }
+                            }
+                            if (text.includes('sell qty') || text.includes('sell quantity') || text.includes('ask qty') || text.includes('sell price')) {
+                                const tRows = table.querySelectorAll('tr');
+                                let sumQty = 0;
+                                let foundTotal = false;
+                                for (const r of tRows) {
+                                    const rText = r.innerText.toLowerCase();
+                                    if (rText.includes('total')) {
+                                        const cells = r.querySelectorAll('td, th');
+                                        for (const cell of cells) {
+                                            const val = parseI(cell.innerText);
+                                            if (val > ask_quantity) {
+                                                ask_quantity = val;
+                                                foundTotal = true;
+                                            }
+                                        }
+                                    } else {
+                                        const cells = r.querySelectorAll('td');
+                                        if (cells.length >= 2) {
+                                            const val2 = cells[1].innerText.trim();
+                                            const q = parseI(val2);
+                                            if (q > 0 && !val2.includes('.')) sumQty += q;
+                                        }
+                                    }
+                                }
+                                if (!foundTotal && sumQty > 0) {
+                                    ask_quantity = sumQty;
                                 }
                             }
                         }
                         
-                        return { ltp, prev_close, high_limit };
+                        return { ltp, prev_close, high_limit, volume, bid_quantity, ask_quantity };
                     }""",
                     symbol.upper(),
                 )
@@ -603,6 +692,9 @@ class NaasaBrokerClient(BrokerClient):
                     return {
                         "symbol": symbol.upper(),
                         "ltp": data["ltp"],
+                        "bid_quantity": data.get("bid_quantity", 0),
+                        "ask_quantity": data.get("ask_quantity", 0),
+                        "volume": data.get("volume", 0),
                         "prev_close": prev_close,
                         "upper_circuit": upper_circuit,
                         "lower_circuit": lower_circuit,
@@ -891,7 +983,15 @@ class NaasaBrokerClient(BrokerClient):
                 "direct_url",
                 self._order_url or "https://x.naasasecurities.com.np/MarketOrder/Order",
             )
-            if "MarketOrder" in page.url:
+            is_frozen = False
+            if page:
+                try:
+                    await asyncio.wait_for(page.evaluate("1"), timeout=1.5)
+                except Exception:
+                    is_frozen = True
+                    logger.warning("naasa_stage_page_frozen_detected_forcing_reload", symbol=sym)
+
+            if "MarketOrder" in page.url and not is_frozen:
                 reset_sel = self.selectors.get("reset_button", "#btnReset")
                 try:
                     if await page.locator(reset_sel).count() > 0:
@@ -900,13 +1000,13 @@ class NaasaBrokerClient(BrokerClient):
                 except Exception:
                     pass
             else:
-                await page.goto(order_url, wait_until="domcontentloaded")
+                await page.goto(order_url, wait_until="domcontentloaded", timeout=15000)
 
             symbol_sel = self.selectors.get("order_symbol", "#searchStock")
             qty_sel = self.selectors.get("order_quantity", "#OrdertxtQty")
             price_sel = self.selectors.get("order_price", "#OrdertxtPrice")
 
-            await page.wait_for_selector(symbol_sel, timeout=self.timeout)
+            await page.wait_for_selector(symbol_sel, timeout=self.selectors.get("interactive_timeout_ms", 5000))
 
             # Buy-only: always use buy tab
             buy_tab = self.selectors.get("buy_side_tab", "a.buy_frm_order")
@@ -948,6 +1048,12 @@ class NaasaBrokerClient(BrokerClient):
             except Exception:
                 pass
             logger.error("naasa_order_staging_failed", symbol=sym, error=str(exc))
+            # Force page reload on staging failure to recover from frozen/broken DOM state
+            try:
+                logger.info("forcing_page_reload_on_staging_failure", symbol=sym)
+                await page.reload(wait_until="domcontentloaded", timeout=15000)
+            except Exception as reload_err:
+                logger.warning("failed_to_reload_page_after_staging_failure", symbol=sym, error=str(reload_err))
             return False
 
     async def fast_trigger_buy(
