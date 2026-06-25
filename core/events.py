@@ -79,6 +79,20 @@ class EventBus:
             except ValueError:
                 pass
 
+    def unsubscribe_all(self, handler: EventHandler) -> None:
+        """Unsubscribe handler from all event types and wildcard list."""
+        if handler in self._wildcard_handlers:
+            try:
+                self._wildcard_handlers.remove(handler)
+            except ValueError:
+                pass
+        for event_type in list(self._handlers.keys()):
+            if handler in self._handlers[event_type]:
+                try:
+                    self._handlers[event_type].remove(handler)
+                except ValueError:
+                    pass
+
     def subscribe_all(self, handler: EventHandler) -> None:
         """Register handler for all events."""
         self._wildcard_handlers.append(handler)

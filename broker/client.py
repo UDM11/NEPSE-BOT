@@ -441,3 +441,33 @@ class BrokerClient:
             "session": self.session.get_status(),
             "network_endpoints": len(self.network._endpoints),
         }
+
+    async def capture_live_screenshot(self) -> bytes | None:
+        """Capture screenshot of the current active page (or main page) and return bytes."""
+        if self.simulate:
+            return None
+
+        page_to_capture = None
+        # Check Naasa broker specific pages first
+        symbol_pages = getattr(self, "_symbol_pages", {})
+        if symbol_pages:
+            for page in symbol_pages.values():
+                if page and not page.is_closed():
+                    page_to_capture = page
+                    break
+
+        if not page_to_capture:
+            market_page = getattr(self, "_market_page", None)
+            if market_page and not market_page.is_closed():
+                page_to_capture = market_page
+            elif self._page and not self._page.is_closed():
+                page_to_capture = self._page
+
+        if not page_to_capture:
+            return None
+
+        try:
+            return await page_to_capture.screenshot(type="png", full_page=False, timeout=5000)
+        except Exception as exc:
+            logger.error("live_screenshot_capture_failed", error=str(exc))
+            return None

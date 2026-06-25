@@ -7,7 +7,7 @@ import json
 from datetime import datetime, timezone
 from pathlib import Path
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Response
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 
@@ -142,6 +142,35 @@ def create_dashboard_app(bot_state: dict | None = None) -> FastAPI:
             "events": len(state.get("event_bus").get_recent_events(100)) if state.get("event_bus") else 0,
         }
 
+    @app.get("/api/screenshot")
+    async def get_screenshot():
+        broker = state.get("broker")
+        if broker:
+            img_bytes = await broker.capture_live_screenshot()
+            if img_bytes:
+                return Response(content=img_bytes, media_type="image/png")
+        
+        # Return placeholder SVG if no screenshot is available
+        placeholder_svg = """<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 450" width="100%" height="100%">
+            <rect width="100%" height="100%" fill="#0a0f1d"/>
+            <text x="50%" y="45%" dominant-baseline="middle" text-anchor="middle" font-family="system-ui, sans-serif" font-size="20" fill="#64748b" font-weight="bold">Live Browser View Unavailable</text>
+            <text x="50%" y="55%" dominant-baseline="middle" text-anchor="middle" font-family="system-ui, sans-serif" font-size="14" fill="#475569">(Browser not initialized or running in simulation mode)</text>
+        </svg>"""
+        return Response(content=placeholder_svg, media_type="image/svg+xml")
+
+    @app.get("/api/logs")
+    async def get_logs(limit: int = 150):
+        log_path = Path("logs/nepse_bot.log")
+        if not log_path.exists():
+            return {"logs": ["Log file not found."]}
+        try:
+            with open(log_path, "r", encoding="utf-8", errors="ignore") as f:
+                lines = f.readlines()
+                tail_lines = [line.strip() for line in lines[-limit:]]
+                return {"logs": tail_lines}
+        except Exception as e:
+            return {"logs": [f"Error reading logs: {e}"]}
+
     @app.post("/api/kill-switch/activate")
     async def activate_kill_switch():
         risk = state.get("risk_manager")
@@ -216,22 +245,86 @@ def create_dashboard_app(bot_state: dict | None = None) -> FastAPI:
     @app.websocket("/ws")
     async def websocket_endpoint(websocket: WebSocket):
         await manager.connect(websocket)
+        
+        queue = asyncio.Queue()
+        event_bus = state.get("event_bus")
+        
+        async def on_event(event):
+            await queue.put(event)
+            
+        if event_bus:
+            event_bus.subscribe_all(on_event)
+            
         try:
+            # Send initial update
+            initial_payload = {
+                "type": "update",
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "metrics": metrics.get_all_stats(),
+                "counters": metrics.get_counters(),
+            }
+            monitor = state.get("market_monitor")
+            if monitor:
+                initial_payload["watchlist"] = [
+                    t.to_dict() for t in monitor.get_all_ticks().values()
+                ]
+            await websocket.send_text(json.dumps(initial_payload, default=str))
+            
+            # Send periodic heartbeats every 1.5 seconds to keep metrics fresh if no events are firing
+            async def heartbeat_loop():
+                try:
+                    while True:
+                        await asyncio.sleep(1.5)
+                        payload = {
+                            "type": "update",
+                            "timestamp": datetime.now(timezone.utc).isoformat(),
+                            "metrics": metrics.get_all_stats(),
+                            "counters": metrics.get_counters(),
+                        }
+                        monitor = state.get("market_monitor")
+                        if monitor:
+                            payload["watchlist"] = [
+                                t.to_dict() for t in monitor.get_all_ticks().values()
+                            ]
+                        await websocket.send_text(json.dumps(payload, default=str))
+                except asyncio.CancelledError:
+                    pass
+                except Exception:
+                    pass
+
+            heartbeat_task = asyncio.create_task(heartbeat_loop())
+            
             while True:
-                payload = {
-                    "type": "update",
-                    "timestamp": datetime.now(timezone.utc).isoformat(),
-                    "metrics": metrics.get_all_stats(),
-                    "counters": metrics.get_counters(),
-                }
+                # Wait for any EventBus event
+                event = await queue.get()
+                
+                # Get latest ticks list to include as watchlist
+                watchlist_data = []
                 monitor = state.get("market_monitor")
                 if monitor:
-                    payload["watchlist"] = [
-                        t.to_dict() for t in monitor.get_all_ticks().values()
-                    ]
+                    watchlist_data = [t.to_dict() for t in monitor.get_all_ticks().values()]
+                
+                payload = {
+                    "type": "event",
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                    "event": {
+                        "type": event.type.value,
+                        "data": event.data,
+                    },
+                    "metrics": metrics.get_all_stats(),
+                    "counters": metrics.get_counters(),
+                    "watchlist": watchlist_data,
+                }
                 await websocket.send_text(json.dumps(payload, default=str))
-                await asyncio.sleep(1)
+                queue.task_done()
+                
         except WebSocketDisconnect:
+            pass
+        finally:
+            if 'heartbeat_task' in locals():
+                heartbeat_task.cancel()
+            if event_bus:
+                event_bus.unsubscribe_all(on_event)
             manager.disconnect(websocket)
 
     app.state.connection_manager = manager

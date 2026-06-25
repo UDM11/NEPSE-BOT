@@ -66,12 +66,20 @@ class NetworkAnalyzer:
         self._auth_tokens: dict[str, str] = {}
         self.ws_cache: dict[str, dict] = {}
         self.event_bus = event_bus
+        self.full_bearer_token: str | None = None
+        self.last_auth_headers: dict[str, str] = {}
 
     def on_request(self, request) -> None:
         """Playwright request handler."""
         try:
             headers = dict(request.headers) if request.headers else {}
             auth_token = self._extract_auth(headers)
+
+            # Capture full bearer token if present
+            for key, val in headers.items():
+                if key.lower() == 'authorization' and val.lower().startswith('bearer '):
+                    self.full_bearer_token = val
+                    self.last_auth_headers = headers.copy()
 
             captured = CapturedRequest(
                 url=request.url,

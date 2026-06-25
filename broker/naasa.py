@@ -45,6 +45,7 @@ class NaasaBrokerClient(BrokerClient):
         self._market_page_lock = asyncio.Lock()
         self._symbol_pages = {}
         self._last_page_scrape_time: dict[str, datetime] = {}
+        self._scrip_cache: dict[str, tuple[str, str]] = {}
 
     async def login(self) -> bool:
         """Login to Naasa X via Keycloak email/password form."""
@@ -159,6 +160,21 @@ class NaasaBrokerClient(BrokerClient):
                 "order_id": f"SIM-{datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S')}"
             }
 
+        # 1. Try Direct REST API order submission first for sub-15ms execution
+        if price and price > 0.0:
+            try:
+                logger.info("attempting_direct_api_order_submission", symbol=symbol, quantity=quantity, price=price)
+                api_res = await self._submit_api_order(symbol, quantity, price)
+                if api_res and api_res.get("success"):
+                    logger.info("direct_api_order_submission_successful", symbol=symbol, order_id=api_res.get("order_id"))
+                    return api_res
+                else:
+                    logger.warning("direct_api_order_rejected_falling_back_to_gui", symbol=symbol, result=api_res)
+            except Exception as api_err:
+                logger.warning("direct_api_order_failed_with_exception_falling_back", symbol=symbol, error=str(api_err))
+
+        # 2. Playwright GUI Fallback
+        logger.info("falling_back_to_playwright_gui_placement", symbol=symbol)
         if not self._page or self._page.is_closed():
             self.session.mark_logged_out()
 
@@ -167,7 +183,7 @@ class NaasaBrokerClient(BrokerClient):
             raise BrokerError("Browser not initialized")
 
         self.session.touch()
-        logger.info("naasa_placing_order", symbol=symbol, side=side, quantity=quantity)
+        logger.info("naasa_placing_order_via_gui", symbol=symbol, side=side, quantity=quantity)
 
         try:
             await self._navigate_to_order_page()
@@ -218,6 +234,124 @@ class NaasaBrokerClient(BrokerClient):
         except Exception as exc:
             await self._capture_screenshot(f"naasa_order_error_{symbol}")
             raise BrokerError(f"Naasa X order failed: {exc}") from exc
+
+    async def _submit_api_order(
+        self,
+        symbol: str,
+        quantity: int,
+        price: float,
+        scrip_id: str | None = None,
+        exchange: str | None = None,
+    ) -> dict[str, Any] | None:
+        """Helper to submit order via direct REST HTTP request."""
+        try:
+            symbol_page = getattr(self, "_symbol_pages", {}).get(symbol.upper(), self._page)
+            if not symbol_page or symbol_page.is_closed():
+                return None
+
+            # 1. Resolve scrip_id and exchange using cache first
+            cache_val = self._scrip_cache.get(symbol.upper())
+            if cache_val:
+                scrip_id, exchange = cache_val
+            else:
+                if not scrip_id:
+                    scrip_id = await symbol_page.evaluate("Selected_scrip")
+                if not exchange:
+                    exchange = await symbol_page.evaluate("Selected_Exchange")
+                if scrip_id and exchange:
+                    self._scrip_cache[symbol.upper()] = (scrip_id, exchange)
+                
+            if not scrip_id or not exchange:
+                logger.warning("api_order_failed_missing_tokens", symbol=symbol)
+                return None
+
+            # 2. Extract active cookies
+            playwright_cookies = await self._context.cookies()
+            cookies = {c["name"]: c["value"] for c in playwright_cookies if "naasasecurities.com.np" in c["domain"]}
+
+            # 3. Get user agent
+            user_agent = await symbol_page.evaluate("navigator.userAgent")
+
+            # 4. Build headers
+            headers = {
+                "Content-Type": "application/json; charset=utf-8",
+                "X-Requested-With": "XMLHttpRequest",
+                "Referer": "https://x.naasasecurities.com.np/MarketOrder/Order",
+                "User-Agent": user_agent,
+                "Accept": "application/json, text/javascript, */*; q=0.01",
+                "Accept-Language": "en-US,en;q=0.9",
+                "Origin": "https://x.naasasecurities.com.np",
+            }
+            if hasattr(self.network, "full_bearer_token") and self.network.full_bearer_token:
+                headers["Authorization"] = self.network.full_bearer_token
+
+            # 5. Build payload
+            payload = {
+                "TradingAccount": "CNC",
+                "Exchange": exchange,
+                "Scrip": str(scrip_id),
+                "Quantity": str(quantity),
+                "Price": str(price),
+                "Market": "0" if price > 0.0 else "1",
+                "OrderTerms": "DAY",
+                "BuySellIndicator": "B",
+                "BuySellType": "Buy",
+                "DeliveryTerms": "D",
+                "MarketSegment": "RL",
+                "OrderCategory": "NORMAL",
+                "OrderType": "NORMAL",
+                "AccRefCode": "SELF",
+                "TermValidity": "",
+                "ProductType": "CASH",
+                "DisclosedQuantity": "",
+                "isSquareOff": 0
+            }
+
+            # 6. Execute direct HTTP POST request
+            if not hasattr(self, "_http_client") or self._http_client is None:
+                self._http_client = httpx.AsyncClient(timeout=10.0)
+
+            logger.info("sending_direct_api_order", symbol=symbol, scrip_id=scrip_id, exchange=exchange)
+            
+            response = await self._http_client.post(
+                "https://x.naasasecurities.com.np/MarketOrder/Order",
+                json=payload,
+                cookies=cookies,
+                headers=headers,
+            )
+
+            if response.status_code != 200:
+                logger.warning("api_order_http_error", status_code=response.status_code, body=response.text[:200])
+                return None
+
+            try:
+                res_json = response.json()
+            except ValueError:
+                logger.warning("api_order_non_json_response", body=response.text[:200])
+                return None
+
+            error_code = res_json.get("errorCode")
+            if error_code is None:
+                error_code = res_json.get("ErrorCode")
+            
+            if error_code in (0, "0", None):
+                return {
+                    "success": True,
+                    "status": "submitted",
+                    "message": res_json.get("message", res_json.get("Message", "Order submitted successfully")),
+                    "order_id": res_json.get("orderId", res_json.get("OrderId", f"API-{datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S')}"))
+                }
+            else:
+                logger.warning("api_order_rejected_by_broker", error_code=error_code, message=res_json.get("message"))
+                return {
+                    "success": False,
+                    "reason": "broker_rejected",
+                    "message": res_json.get("message", "Rejected by broker")
+                }
+
+        except Exception as exc:
+            logger.warning("api_order_exception", error=str(exc))
+            return None
 
     async def _navigate_to_order_page(self) -> None:
         """Ensure order page is active. Reset form if already there (saves ~2 sec)."""

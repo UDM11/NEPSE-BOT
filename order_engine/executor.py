@@ -177,11 +177,19 @@ class OrderExecutor:
             submission_latency = (time.perf_counter() - start) * 1000
             metrics.record_latency("order_submission_latency", submission_latency, request.symbol)
 
+            # Record API vs GUI submission metrics
+            broker_order_id = broker_result.get("order_id", "")
+            is_api = broker_order_id.startswith("API-") or broker_order_id.startswith("SIM-")
+            if is_api:
+                metrics.record_latency("api_submission_latency", submission_latency, request.symbol)
+            else:
+                metrics.record_latency("gui_submission_latency", submission_latency, request.symbol)
+
             result = OrderResult(
                 order_id=request.id,
                 success=broker_result.get("success", False),
                 status=broker_result.get("status", "submitted"),
-                broker_order_id=broker_result.get("order_id"),
+                broker_order_id=broker_order_id,
                 message=broker_result.get("message", ""),
                 latency_ms=submission_latency,
                 executed_at=datetime.now(timezone.utc) if broker_result.get("success") else None,
