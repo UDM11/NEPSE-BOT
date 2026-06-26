@@ -275,6 +275,28 @@ class NepseTradingBot:
         price_band_divisor = 1.0 + (price_band_pct / 100.0)
 
         tz = ZoneInfo("Asia/Kathmandu")
+
+        # ── Safety check: skip if order already executed today (prevents duplicate on restart) ──
+        if self._session_factory:
+            try:
+                from database.models import OrderStatus
+                async with self._session_factory() as session:
+                    local_db = DatabaseRepository(session)
+                    today_orders = await local_db.get_orders_by_symbol_today(symbol)
+                    already_executed = any(
+                        o.status in (OrderStatus.EXECUTED, OrderStatus.SUBMITTED)
+                        for o in today_orders
+                    )
+                    if already_executed:
+                        logger.warning(
+                            "ipo_orchestrator_skipped_order_already_executed_today",
+                            symbol=symbol,
+                            orders_today=len(today_orders),
+                        )
+                        return
+            except Exception as e:
+                logger.warning("ipo_orchestrator_db_check_failed", symbol=symbol, error=str(e))
+
         staged = False
         triggered = False
         last_logged_sec = -1
@@ -295,8 +317,53 @@ class NepseTradingBot:
 
         self.event_bus.subscribe(EventType.MARKET_DATA_UPDATE, handle_market_tick_event)
 
+        polling_task = None
+
+        async def aggressive_polling_loop():
+            nonlocal staged, triggered
+            poll_interval_sec = 0.080 # 80ms
+            
+            def is_in_preopen_window():
+                now_nepal = datetime.now(tz)
+                is_dev = self.settings.app_env.lower() == "development"
+                is_preopen = now_nepal.hour == 10 and (44 <= now_nepal.minute <= 45)
+                is_regular = (now_nepal.hour == 10 and now_nepal.minute == 59) or (now_nepal.hour == 11 and now_nepal.minute == 0)
+                is_other_test = now_nepal.hour >= 11 or now_nepal.hour < 10
+                return is_preopen or is_regular or is_other_test or is_dev
+
+            logger.info("aggressive_polling_loop_started", symbol=symbol)
+            try:
+                while self._running and staged and not triggered:
+                    if is_in_preopen_window():
+                        if self.broker and hasattr(self.broker, "_fetch_quote_api") and getattr(self.broker.session, "is_logged_in", False):
+                            try:
+                                symbol_page = getattr(self.broker, "_symbol_pages", {}).get(symbol.upper(), getattr(self.broker, "_page", None))
+                                if symbol_page:
+                                    quote = await self.broker._fetch_quote_api(symbol, symbol_page)
+                                    if quote and quote.get("ltp", 0.0) > 0.0:
+                                        tick_update = {
+                                            "symbol": symbol,
+                                            "ltp": quote["ltp"],
+                                            "high_limit": quote.get("high_limit", 0.0),
+                                            "volume": quote.get("volume", 0),
+                                            "bid_quantity": quote.get("bid_quantity", 0),
+                                            "ask_quantity": quote.get("ask_quantity", 0),
+                                            "source": "polling_fast"
+                                        }
+                                        await tick_queue.put(tick_update)
+                            except Exception as e:
+                                logger.debug("aggressive_polling_error", symbol=symbol, error=str(e))
+                    await asyncio.sleep(poll_interval_sec)
+            except asyncio.CancelledError:
+                pass
+            finally:
+                logger.info("aggressive_polling_loop_stopped", symbol=symbol)
+
         try:
             while self._running:
+                # Start fast HTTP polling loop if staged and not triggered
+                if staged and not triggered and (polling_task is None or polling_task.done()):
+                    polling_task = asyncio.create_task(aggressive_polling_loop())
                 # Check if kill switch is active
                 is_kill_active = self.settings.risk_kill_switch or (self.risk_manager.state.kill_switch_active if self.risk_manager else False)
                 if is_kill_active:
@@ -430,10 +497,11 @@ class NepseTradingBot:
                         max_attempts = 150
                         success = False
                         last_error_msg = None
+                        is_permanent_failure = False
                         
                         while attempts < max_attempts and self._running and not success:
                             attempts += 1
-                            logger.info("fast_trigger_attempt", symbol=symbol, attempt=attempts, time=datetime.now(tz).strftime("%H:%M:%S.%f"))
+                            logger.debug("fast_trigger_attempt", symbol=symbol, attempt=attempts, time=datetime.now(tz).strftime("%H:%M:%S.%f"))
                             
                             if hasattr(self.broker, "fast_trigger_buy"):
                                 is_kill_active = self.settings.risk_kill_switch or (self.risk_manager.state.kill_switch_active if self.risk_manager else False)
@@ -475,6 +543,29 @@ class NepseTradingBot:
                                     if reason == "Kill switch active":
                                         logger.warning("fast_trigger_stopped_due_to_kill_switch", symbol=symbol)
                                         break
+                                    
+                                    # Check for permanent rejection errors (e.g. Margin short)
+                                    err_text = f"{reason} {message}".lower()
+                                    permanent_keywords = [
+                                        "margin", "collateral", "balance", "insufficient", "limit", "exceed",
+                                        "suspended", "inactive", "invalid", "closed", "range", "cannot place",
+                                        "client not found", "not enough"
+                                    ]
+                                    if any(kw in err_text for kw in permanent_keywords):
+                                        logger.critical(
+                                            "fast_trigger_permanent_rejection_detected",
+                                            symbol=symbol,
+                                            reason=reason,
+                                            message=message,
+                                            attempts=attempts
+                                        )
+                                        is_permanent_failure = True
+                                        if self.risk_manager:
+                                            self.risk_manager.activate_kill_switch(
+                                                f"Permanent broker rejection for {symbol}: {message}"
+                                            )
+                                        break
+
                                     # Self-healing: if session or cookie error occurs, refresh tokens from the active browser context
                                     if any(x in (str(reason) + " " + str(message)).lower() for x in ("cookie", "session", "auth", "unauthorized", "login", "expired")):
                                         try:
@@ -498,7 +589,8 @@ class NepseTradingBot:
                                 latency_ms=latency_ms,
                                 order_id=f"STAGED-{symbol}",
                             )
-                            triggered = False                  # Reset triggered so we can check again on the next price tick
+                            if not is_permanent_failure:
+                                triggered = False                  # Reset triggered so we can check again on the next price tick
                 
                 # Precise event-driven waiting
                 tick_data = None
@@ -511,6 +603,8 @@ class NepseTradingBot:
                 else:
                     await asyncio.sleep(1.0)
         finally:
+            if polling_task and not polling_task.done():
+                polling_task.cancel()
             self.event_bus.unsubscribe(EventType.MARKET_DATA_UPDATE, handle_market_tick_event)
 
     async def _log_ipo_order(

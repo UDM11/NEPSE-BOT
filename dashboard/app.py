@@ -46,6 +46,136 @@ class ConnectionManager:
             self.disconnect(ws)
 
 
+async def _get_live_nepse_index(broker) -> dict:
+    """Fetch live NEPSE index points, points change, volume, and turnover from NAASA API."""
+    if not broker:
+        return {"nepse": None}
+    try:
+        page = getattr(broker, "_page", None)
+        if not page or page.is_closed():
+            return {"nepse": None}
+
+        # Try /MarketOrder/Indices first
+        result = await page.evaluate(
+            """async () => {
+                try {
+                    const r = await fetch('/MarketOrder/Indices', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'X-Requested-With': 'XMLHttpRequest'
+                        },
+                        body: JSON.stringify({})
+                    });
+                    return await r.json();
+                } catch(e) { return null; }
+            }"""
+        )
+
+        out = {"nepse": None}
+
+        if result and isinstance(result, dict) and "data" in result:
+            import json as _json
+            data_str = result["data"]
+            rows = _json.loads(data_str) if isinstance(data_str, str) else data_str
+            for row in rows:
+                if not isinstance(row, dict):
+                    continue
+                ticker = str(row.get("ticker", row.get("indexName", row.get("name", "")))).upper()
+                if "NEPSE" in ticker and "SENSITIVE" not in ticker and "FLOAT" not in ticker and "SENSIND" not in ticker:
+                    try:
+                        ltp = float(str(row.get("LTP", row.get("currentValue", row.get("value", 0.0)))).replace(",", ""))
+                        close = float(str(row.get("Close", row.get("previousClose", 0.0))).replace(",", ""))
+                    except Exception:
+                        ltp = 0.0
+                        close = 0.0
+
+                    chg_val = row.get("%Change") or row.get("percentChange") or row.get("change")
+                    try:
+                        if chg_val and str(chg_val).strip():
+                            change = float(str(chg_val).replace(",", ""))
+                        else:
+                            change = ((ltp - close) / close * 100.0) if close > 0.0 else 0.0
+                    except Exception:
+                        change = 0.0
+
+                    points_change = ltp - close if ltp > 0.0 and close > 0.0 else 0.0
+
+                    try:
+                        # TTQ is Total Traded Quantity (Volume in shares)
+                        volume = float(str(row.get("TTQ", row.get("totalTradeQuantity", 0))).replace(",", ""))
+                    except Exception:
+                        volume = 0.0
+
+                    try:
+                        # Volume is the monetary trade value (Turnover in NPR)
+                        turnover = float(str(row.get("Volume", row.get("TTV", row.get("totalTradedValue", 0)))).replace(",", ""))
+                    except Exception:
+                        turnover = 0.0
+
+                    out["nepse"] = {
+                        "value": ltp,
+                        "change": change,
+                        "points_change": points_change,
+                        "volume": volume,
+                        "turnover": turnover
+                    }
+                    break
+
+            if out.get("nepse") is not None:
+                return out
+
+        # Fallback to /Home/MarketSummary if Indices failed or returned empty
+        result = await page.evaluate(
+            """async () => {
+                try {
+                    const r = await fetch('/Home/MarketSummary', {
+                        headers: {'X-Requested-With': 'XMLHttpRequest'}
+                    });
+                    return await r.json();
+                } catch(e) { return null; }
+            }"""
+        )
+        if result and isinstance(result, dict) and "data" in result:
+            import json as _json
+            data_str = result["data"]
+            rows = _json.loads(data_str) if isinstance(data_str, str) else data_str
+            for row in rows:
+                if not isinstance(row, dict):
+                    continue
+                ticker = str(row.get("ticker", row.get("indexName", row.get("name", "")))).upper()
+                if "NEPSE" in ticker and "SENSITIVE" not in ticker and "FLOAT" not in ticker and "SENSIND" not in ticker:
+                    try:
+                        ltp = float(str(row.get("LTP", row.get("currentValue", row.get("value", 0.0)))).replace(",", ""))
+                    except Exception:
+                        ltp = 0.0
+
+                    try:
+                        volume = float(str(row.get("TTQ", row.get("totalTradeQuantity", 0))).replace(",", ""))
+                    except Exception:
+                        volume = 0.0
+
+                    try:
+                        turnover = float(str(row.get("TTV", row.get("totalTradedValue", row.get("Volume", 0)))).replace(",", ""))
+                    except Exception:
+                        turnover = 0.0
+
+                    out["nepse"] = {
+                        "value": ltp,
+                        "change": 0.0,
+                        "points_change": 0.0,
+                        "volume": volume,
+                        "turnover": turnover
+                    }
+                    break
+            return out
+
+    except Exception as e:
+        logger.debug("nepse_index_fetch_error", error=str(e))
+
+    return {"nepse": None}
+
+
 def create_dashboard_app(bot_state: dict | None = None) -> FastAPI:
     """Create FastAPI dashboard application."""
     app = FastAPI(title="NEPSE Trading Bot Dashboard", version="1.0.0")
@@ -132,6 +262,12 @@ def create_dashboard_app(bot_state: dict | None = None) -> FastAPI:
         if risk:
             return risk.get_status()
         return {}
+
+    @app.get("/api/nepse-index")
+    async def nepse_index():
+        """Fetch live NEPSE index points from NAASA API."""
+        broker = state.get("broker")
+        return await _get_live_nepse_index(broker)
 
     @app.get("/api/system")
     async def system_status():
@@ -287,6 +423,15 @@ def create_dashboard_app(bot_state: dict | None = None) -> FastAPI:
                             payload["watchlist"] = [
                                 t.to_dict() for t in monitor.get_all_ticks().values()
                             ]
+                        # Fetch NEPSE index every heartbeat
+                        try:
+                            broker = state.get("broker")
+                            if broker:
+                                nepse_data = await _get_live_nepse_index(broker)
+                                if nepse_data and nepse_data.get("nepse") is not None:
+                                    payload["nepse_index"] = nepse_data
+                        except Exception:
+                            pass
                         await websocket.send_text(json.dumps(payload, default=str))
                 except asyncio.CancelledError:
                     pass

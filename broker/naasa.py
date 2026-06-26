@@ -473,10 +473,23 @@ class NaasaBrokerClient(BrokerClient):
             except Exception:
                 pass
 
+        # Always try the SpecifiedQuote API for live price (most reliable source)
+        # Use any available page — fetch() is authenticated via cookies regardless of current page content
+        api_page = symbol_page or (self._page if self._page and not self._page.is_closed() else None)
+        if should_scrape and api_page:
+            self._last_page_scrape_time[symbol.upper()] = now
+            api_data = await self._fetch_quote_api(symbol, api_page)
+            if api_data:
+                if not hasattr(self, "_cached_high_limit"):
+                    self._cached_high_limit = {}
+                if api_data.get("high_limit", 0.0) > 0.0:
+                    self._cached_high_limit[symbol.upper()] = api_data["high_limit"]
+                logger.debug("price_from_specified_quote_api", symbol=symbol, ltp=api_data.get("ltp"))
+                return api_data
+
         if ws_data:
             # If we have WebSocket data, only scrape high_limit from the page occasionally
             if should_scrape and symbol_page and not symbol_page.is_closed() and "MarketOrder" in symbol_page.url:
-                self._last_page_scrape_time[symbol.upper()] = now
                 try:
                     page_data = await symbol_page.evaluate(
                         r"""() => {
@@ -906,13 +919,155 @@ class NaasaBrokerClient(BrokerClient):
             "timestamp": datetime.now(timezone.utc).isoformat(),
         }
 
+    async def _fetch_quote_api(self, symbol: str, page) -> dict | None:
+        """Fetch live quote directly from NAASA APIs via browser fetch (authenticated via cookies)."""
+        try:
+            result = await page.evaluate(
+                """async (sym) => {
+                    const tryFetch = async (url, body, contentType) => {
+                        try {
+                            const resp = await fetch(url, {
+                                method: 'POST',
+                                headers: {
+                                    'Content-Type': contentType,
+                                    'X-Requested-With': 'XMLHttpRequest'
+                                },
+                                body: body
+                            });
+                            const raw = await resp.text();
+                            return { status: resp.status, body: raw.substring(0, 3000), url: url };
+                        } catch(e) { return { error: e.toString(), url: url }; }
+                    };
+
+                    // Try 1: SpecifiedQuote (using correct exchange prefix 'NEPSE.SYMBOL' and 'ticker' field)
+                    let r = await tryFetch(
+                        '/MarketOrder/SpecifiedQuote',
+                        JSON.stringify({ ticker: 'NEPSE.' + sym }),
+                        'application/json'
+                    );
+                    if (r.status === 200 && r.body) {
+                        try {
+                            const obj = JSON.parse(r.body);
+                            if (obj.ErrorCode === 0 || obj.errorCode === 0) return r;
+                        } catch(e) {}
+                    }
+
+                    // Try 2: Scrip endpoint (fallback)
+                    r = await tryFetch(
+                        '/MarketOrder/Scrip',
+                        JSON.stringify({ Scrip: sym }),
+                        'application/json'
+                    );
+                    if (r.status === 200 && r.body) {
+                        try {
+                            const obj = JSON.parse(r.body);
+                            if (obj.ErrorCode === 0 || obj.errorCode === 0) return r;
+                        } catch(e) {}
+                    }
+
+                    // Try 3: OrderDetails endpoint (metadata fallback)
+                    r = await tryFetch(
+                        '/MarketOrder/OrderDetails',
+                        JSON.stringify({ exchange: 'NEPSE', ticker: sym }),
+                        'application/json'
+                    );
+                    if (r.status === 200 && r.body) {
+                        try {
+                            const obj = JSON.parse(r.body);
+                            if (obj.ErrorCode === 0 || obj.errorCode === 0) return r;
+                        } catch(e) {}
+                    }
+
+                    return r; // return last attempt for logging
+                }""",
+                symbol.upper()
+            )
+
+            logger.debug("quote_api_raw", symbol=symbol,
+                        status=result.get("status") if result else None,
+                        url=result.get("url") if result else None,
+                        body_preview=str(result.get("body", ""))[:200] if result else None)
+
+            if not result or result.get("status") != 200 or not result.get("body"):
+                return None
+
+            import json as _json
+            body = result.get("body", "")
+            try:
+                outer = _json.loads(body)
+                if isinstance(outer, dict) and "data" in outer:
+                    data_val = outer["data"]
+                    if isinstance(data_val, str):
+                        # Detect if JSON string or base64 encoded string
+                        if data_val.strip().startswith("[") or data_val.strip().startswith("{"):
+                            parsed = _json.loads(data_val)
+                        else:
+                            # Try decoding base64
+                            import base64
+                            try:
+                                decoded = base64.b64decode(data_val).decode("utf-8")
+                                parsed = _json.loads(decoded)
+                            except Exception:
+                                parsed = data_val
+                    else:
+                        parsed = data_val
+                else:
+                    parsed = outer
+            except Exception:
+                return None
+
+            row = parsed[0] if isinstance(parsed, list) and parsed else parsed
+            if not isinstance(row, dict):
+                return None
+
+            logger.debug("quote_api_keys", symbol=symbol, keys=list(row.keys())[:25])
+
+            def pf(*keys):
+                for k in keys:
+                    if k in row:
+                        try:
+                            return float(str(row[k]).replace(",", ""))
+                        except Exception:
+                            pass
+                return 0.0
+
+            ltp = pf("ltp", "lastTradedPrice", "LTP", "last_price", "price", "lastPrice",
+                     "LastTradedPrice", "lasttradepr", "LastTradePrice", "closeprice", "closePrice", "BidPrice")
+            if ltp <= 0.0:
+                logger.debug("quote_api_no_ltp", symbol=symbol, row=str(row)[:300])
+                return None
+
+            prev_close = pf("previousClose", "prevClose", "prev_close", "PreviousClose", "previousclose", "Close")
+            upper_circuit = pf("highLimit", "high_limit", "upperCircuit", "upper_circuit",
+                               "HighLimit", "circuitHigh", "highprice", "HighPrice", "HighPriceRange")
+            lower_circuit = pf("lowLimit", "low_limit", "lowerCircuit", "lower_circuit", "LowPriceRange")
+            volume = pf("totalTradeQuantity", "volume", "tradedQty", "qty", "TotalTradeQuantity", "TTQ")
+
+            return {
+                "symbol": symbol.upper(),
+                "ltp": ltp,
+                "prev_close": prev_close,
+                "upper_circuit": upper_circuit,
+                "lower_circuit": lower_circuit,
+                "high_limit": upper_circuit,
+                "volume": int(volume),
+                "bid_quantity": int(pf("totalBuyQuantity", "bidQty", "bid_quantity", "TotalBuyQty", "BidQty")),
+                "ask_quantity": int(pf("totalSellQuantity", "askQty", "ask_quantity", "TotalSellQty", "OfferQty")),
+                "source": "naasa_quote_api",
+                "timestamp": __import__("datetime").datetime.now(__import__("datetime").timezone.utc).isoformat(),
+            }
+        except Exception as exc:
+            logger.info("fetch_quote_api_error", symbol=symbol, error=str(exc))
+            return None
+
+
     async def _parse_ws_quote(self, symbol: str) -> dict[str, Any] | None:
         """Look up symbol in real-time parsed WebSocket cache."""
         cached = getattr(self.network, "ws_cache", {}).get(symbol.upper())
         if cached:
-            # Check quote staleness: if older than 3.0 seconds, treat as stale
+            # Check quote staleness: if older than 15.0 seconds, treat as stale
             age = (datetime.now(timezone.utc) - cached["timestamp"]).total_seconds()
-            if age > 3.0:
+            if age > 15.0:
                 logger.debug("stale_websocket_cache_discarded", symbol=symbol, age=age)
                 return None
             data = cached["data"]

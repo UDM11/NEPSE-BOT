@@ -132,6 +132,24 @@ class MarketMonitor:
                 if watchlist_item.lower_circuit_price > 0:
                     tick.lower_circuit = watchlist_item.lower_circuit_price
 
+        # Preserve previously cached bid/ask details and volumes if fallback returns 0
+        old_tick = self._latest_ticks.get(symbol)
+        if old_tick:
+            if tick.bid_quantity == 0 and old_tick.bid_quantity > 0:
+                tick.bid_quantity = old_tick.bid_quantity
+            if tick.ask_quantity == 0 and old_tick.ask_quantity > 0:
+                tick.ask_quantity = old_tick.ask_quantity
+            if tick.volume == 0 and old_tick.volume > 0:
+                tick.volume = old_tick.volume
+            if not tick.bids and old_tick.bids:
+                tick.bids = old_tick.bids
+            if not tick.asks and old_tick.asks:
+                tick.asks = old_tick.asks
+            if tick.bid_price == 0.0 and old_tick.bid_price > 0.0:
+                tick.bid_price = old_tick.bid_price
+            if tick.ask_price == 0.0 and old_tick.ask_price > 0.0:
+                tick.ask_price = old_tick.ask_price
+
         self._latest_ticks[symbol] = tick
         detection_latency = (time.perf_counter() - start) * 1000
         metrics.record_latency("detection_latency", detection_latency, symbol)

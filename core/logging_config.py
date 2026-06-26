@@ -65,14 +65,20 @@ def setup_logging() -> structlog.stdlib.BoundLogger:
         cache_logger_on_first_use=True,
     )
 
-    formatter = structlog.stdlib.ProcessorFormatter(
+    formatter_console = structlog.stdlib.ProcessorFormatter(
+        processors=[
+            structlog.stdlib.ProcessorFormatter.remove_processors_meta,
+            structlog.dev.ConsoleRenderer(),
+        ],
+    )
+    formatter_file = structlog.stdlib.ProcessorFormatter(
         processors=[
             structlog.stdlib.ProcessorFormatter.remove_processors_meta,
             renderer,
         ],
     )
-    console_handler.setFormatter(formatter)
-    file_handler.setFormatter(formatter)
+    console_handler.setFormatter(formatter_console)
+    file_handler.setFormatter(formatter_file)
 
     return structlog.get_logger("nepse_bot")
 

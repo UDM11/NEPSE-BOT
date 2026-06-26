@@ -113,6 +113,33 @@
                     </div>
                 </div>
 
+                <!-- NEPSE Index Ticker Bar -->
+                <div id="nepse-index-bar" style="
+                    display: flex; gap: 1rem; padding: 0.6rem 1rem;
+                    background: rgba(0,0,0,0.3); border-radius: 10px;
+                    border: 1px solid rgba(99,179,237,0.15);
+                    margin-bottom: 0.5rem; flex-wrap: wrap; align-items: center;
+                ">
+                    <span style="font-size:0.7rem; color: var(--text-muted); text-transform: uppercase; letter-spacing:0.05em; font-weight:600;">📈 NEPSE Index</span>
+                    <div style="display:flex; gap:1.5rem; flex:1; flex-wrap:wrap;">
+                        <div style="display:flex; align-items:center; gap:0.5rem;">
+                            <span style="font-size:0.7rem; color:var(--text-muted);">NEPSE</span>
+                            <span id="idx-nepse-val" style="font-family:'JetBrains Mono',monospace; font-weight:700; font-size:0.95rem; color:#63b3ed;">--</span>
+                            <span id="idx-nepse-pts" style="font-size:0.72rem; padding:0.1rem 0.4rem; border-radius:4px; font-weight:600; font-family:'JetBrains Mono',monospace;">--</span>
+                            <span id="idx-nepse-chg" style="font-size:0.72rem; padding:0.1rem 0.4rem; border-radius:4px; background:rgba(99,179,237,0.15); color:#63b3ed;">--%</span>
+                        </div>
+                        <div style="display:flex; align-items:center; gap:0.4rem; margin-left: 1rem;">
+                            <span style="font-size:0.7rem; color:var(--text-muted);">Volume</span>
+                            <span id="idx-volume-val" style="font-family:'JetBrains Mono',monospace; font-weight:600; font-size:0.9rem; color:#e2e8f0;">--</span>
+                        </div>
+                        <div style="display:flex; align-items:center; gap:0.4rem; margin-left: 1rem;">
+                            <span style="font-size:0.7rem; color:var(--text-muted);">Turnover</span>
+                            <span id="idx-turnover-val" style="font-family:'JetBrains Mono',monospace; font-weight:600; font-size:0.9rem; color:#e2e8f0;">--</span>
+                        </div>
+                    </div>
+                    <span id="idx-last-update" style="font-size:0.65rem; color:var(--text-muted);">Fetching...</span>
+                </div>
+
                 <!-- Tab 1: Live Terminal Pane -->
                 <div id="tab-terminal" class="tab-content active">
                     <div class="terminal-grid">
@@ -128,9 +155,10 @@
                                             <tr>
                                                 <th>Symbol</th>
                                                 <th>LTP (NPR)</th>
-                                                <th>Bid Volume</th>
+                                                <th>Bid Vol</th>
                                                 <th>Order Depth</th>
-                                                <th>Ask Volume</th>
+                                                <th>Ask Vol</th>
+                                                <th>Volume</th>
                                                 <th>Circuit Target</th>
                                                 <th>Status</th>
                                             </tr>
@@ -329,10 +357,10 @@
     <div class="toast-container" id="toast-container"></div>
 
     <!-- Core App Module Scripts -->
-    <script src="/static/js/app.js"></script>
-    <script src="/static/js/api.js"></script>
-    <script src="/static/js/watchlist.js"></script>
-    <script src="/static/js/terminal.js"></script>
-    <script src="/static/js/analytics.js"></script>
+    <script src="/static/js/app.js?v=2"></script>
+    <script src="/static/js/api.js?v=2"></script>
+    <script src="/static/js/watchlist.js?v=2"></script>
+    <script src="/static/js/terminal.js?v=2"></script>
+    <script src="/static/js/analytics.js?v=2"></script>
 </body>
 </html>
