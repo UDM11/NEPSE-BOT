@@ -251,10 +251,10 @@ class NetworkAnalyzer:
                         if line.startswith("1$") or line.startswith("2$"):
                             parts = line.split("$")
                             if len(parts) >= 5:
-                                action = parts[0]
+                                _action = parts[0]
                                 schema_id = parts[1]
                                 symbol_raw = parts[2]
-                                server_time = parts[3]
+                                _server_time = parts[3]
                                 values_str = parts[4]
                                 
                                 symbol = symbol_raw

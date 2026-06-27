@@ -404,8 +404,33 @@ class NepseTradingBot:
                                             if not scrip_id or not exchange:
                                                 logger.warning("staged_tokens_empty_retrying", symbol=symbol)
                                                 staged = False
+                                            
+                                            # Self-healing check: verify if previous close matches broker
+                                            if staged and hasattr(self.broker, "_fetch_quote_api"):
+                                                api_quote = await self.broker._fetch_quote_api(symbol, symbol_page)
+                                                if api_quote and api_quote.get("prev_close", 0.0) > 0.0:
+                                                    real_prev_close = api_quote["prev_close"]
+                                                    if abs(real_prev_close - prev_close) > 0.05:
+                                                        logger.warning(
+                                                            "watchlist_prev_close_outdated_autocorrecting",
+                                                            symbol=symbol,
+                                                            configured_prev_close=prev_close,
+                                                            broker_prev_close=real_prev_close,
+                                                        )
+                                                        prev_close = real_prev_close
+                                                        target_price = math.floor(prev_close * (1 + circuit_pct / 100.0) * 10) / 10
+                                                        
+                                                        # Refill target price on active page
+                                                        price_sel = self.broker.selectors.get("order_price", "#OrdertxtPrice")
+                                                        await symbol_page.fill(price_sel, str(target_price))
+                                                        logger.info("staged_price_autocorrected_on_page", symbol=symbol, target_price=target_price)
+                                                        
+                                                        # Save to watchlist configuration
+                                                        item.prev_close = prev_close
+                                                        item.upper_circuit_price = target_price
+                                                        self.watchlist.save()
                                         except Exception as e:
-                                            logger.warning("failed_to_pre_resolve_order_tokens", symbol=symbol, error=str(e))
+                                            logger.warning("failed_to_pre_resolve_order_tokens_or_self_heal", symbol=symbol, error=str(e))
                                             staged = False
                                     if staged:
                                         self.staged_flag = True
