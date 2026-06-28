@@ -28,6 +28,7 @@ class EventType(str, Enum):
     CAPTCHA_DETECTED = "broker.captcha_detected"
     KILL_SWITCH_ACTIVATED = "risk.kill_switch"
     SYSTEM_ERROR = "system.error"
+    SYSTEM_WARNING = "system.warning"
     SYSTEM_RESTART = "system.restart"
     METRICS_REPORT = "metrics.report"
 

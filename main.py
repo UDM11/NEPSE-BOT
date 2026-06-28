@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import signal
 import sys
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from zoneinfo import ZoneInfo
 from typing import TYPE_CHECKING, Any
 
@@ -49,6 +49,7 @@ class NepseTradingBot:
         self._staging_lock = asyncio.Lock()
         self._staging_tasks: list[asyncio.Task] = []
         self.staged_flag = False
+        self.active_warnings: list[dict[str, Any]] = []
 
         # Components (initialized in setup)
         self.watchlist: WatchlistManager | None = None
@@ -100,7 +101,54 @@ class NepseTradingBot:
             Event(type=EventType.SYSTEM_RESTART, source="main", data={})
         )
 
+        await self.check_clock_drift()
         logger.info("system_setup_complete")
+
+    async def check_clock_drift(self) -> None:
+        """Check system clock drift against a public time server."""
+        import time
+        from email.utils import parsedate_to_datetime
+        import httpx
+
+        logger.info("checking_system_clock_drift")
+        try:
+            async with httpx.AsyncClient(timeout=5.0) as client:
+                start = time.perf_counter()
+                response = await client.head("https://www.google.com")
+                latency_sec = (time.perf_counter() - start) / 2.0
+                
+                server_date_str = response.headers.get("Date")
+                if server_date_str:
+                    server_time = parsedate_to_datetime(server_date_str)
+                    local_time = datetime.now(timezone.utc)
+                    local_adjusted = local_time - timedelta(seconds=latency_sec)
+                    drift_sec = (local_adjusted - server_time).total_seconds()
+                    
+                    if abs(drift_sec) > 0.5:
+                        logger.warning(
+                            "system_clock_drift_detected",
+                            drift_seconds=round(drift_sec, 3),
+                            recommendation="Please synchronize your system clock to prevent order staging or execution delays!"
+                        )
+                        self.active_warnings.append({
+                            "title": "Clock Drift Warning",
+                            "message": f"System clock drift is {round(drift_sec, 3)}s! Please synchronize your Windows clock.",
+                            "timestamp": datetime.now(timezone.utc).isoformat()
+                        })
+                        await self.event_bus.publish(
+                            Event(
+                                type=EventType.SYSTEM_WARNING,
+                                source="main",
+                                data={
+                                    "title": "Clock Drift Warning",
+                                    "message": f"System clock drift is {round(drift_sec, 3)}s! Please synchronize your Windows clock."
+                                }
+                            )
+                        )
+                    else:
+                        logger.info("system_clock_in_sync", drift_seconds=round(drift_sec, 3))
+        except Exception as exc:
+            logger.warning("failed_to_check_clock_drift", error=str(exc))
 
     async def _broker_data_provider(self, symbol: str):
         """Fetch market data from broker or fall back to simulation."""
@@ -433,6 +481,37 @@ class NepseTradingBot:
                                             logger.warning("failed_to_pre_resolve_order_tokens_or_self_heal", symbol=symbol, error=str(e))
                                             staged = False
                                     if staged:
+                                        # Check collateral balance
+                                        if hasattr(self.broker, "get_collateral_balance"):
+                                            try:
+                                                collateral = await self.broker.get_collateral_balance(symbol)
+                                                order_cost = quantity * target_price
+                                                logger.info("collateral_balance_checked", symbol=symbol, available_collateral=collateral, order_cost=order_cost)
+                                                if collateral > 0.0 and collateral < order_cost:
+                                                    logger.critical(
+                                                        "insufficient_collateral_detected",
+                                                        symbol=symbol,
+                                                        required=order_cost,
+                                                        available=collateral,
+                                                    )
+                                                    self.active_warnings.append({
+                                                        "title": "Collateral Warning",
+                                                        "message": f"Insufficient collateral for {symbol}! Staging cost NPR {order_cost:,.2f} exceeds available limit of NPR {collateral:,.2f}.",
+                                                        "timestamp": datetime.now(timezone.utc).isoformat()
+                                                    })
+                                                    await self.event_bus.publish(
+                                                        Event(
+                                                            type=EventType.SYSTEM_WARNING,
+                                                            source="main",
+                                                            data={
+                                                                "title": "Collateral Warning",
+                                                                "message": f"Insufficient collateral for {symbol}! Staging cost NPR {order_cost:,.2f} exceeds available limit of NPR {collateral:,.2f}."
+                                                            }
+                                                        )
+                                                    )
+                                            except Exception as coll_err:
+                                                logger.warning("failed_to_check_collateral_pre_trade", symbol=symbol, error=str(coll_err))
+
                                         self.staged_flag = True
                                         logger.info("ipo_staging_form_staged_successfully", symbol=symbol)
                                         from database.models import OrderStatus

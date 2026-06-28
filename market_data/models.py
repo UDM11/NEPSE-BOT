@@ -64,6 +64,13 @@ class MarketTick:
     def total_ask_quantity(self) -> int:
         return self.ask_quantity or sum(a.quantity for a in self.asks)
 
+    @property
+    def change_percentage(self) -> float:
+        """Percentage change of LTP from previous close."""
+        if self.prev_close <= 0:
+            return 0.0
+        return ((self.ltp - self.prev_close) / self.prev_close) * 100
+
     def to_dict(self) -> dict[str, Any]:
         return {
             "symbol": self.symbol,

@@ -4,6 +4,8 @@ window.updateLiveFeed = function(data) {
     if (data.nepse_index) {
         updateNepseIndexBar(data.nepse_index);
     }
+    // Always update date/time clock
+    updateTickerClock();
 
     if (!data.watchlist) return;
     const tbody = document.getElementById('live-watcher-tbody');
@@ -131,65 +133,253 @@ window.updateLiveFeed = function(data) {
 
 // Update NEPSE Index ticker bar
 function updateNepseIndexBar(idx) {
+    if (!idx) return;
+
     const fmt = (v) => v != null ? parseFloat(v).toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2}) : '--';
     const fmtInt = (v) => v != null ? parseInt(v).toLocaleString('en-US') : '--';
-    const fmtChg = (v) => {
-        if (v == null) return { text: '--%', color: '#63b3ed', bg: 'rgba(99,179,237,0.15)' };
-        const n = parseFloat(v);
-        const sign = n >= 0 ? '▲' : '▼';
-        const color = n >= 0 ? '#48bb78' : '#fc8181';
-        const bg = n >= 0 ? 'rgba(72,187,120,0.15)' : 'rgba(252,129,129,0.15)';
-        return { text: `${sign} ${Math.abs(n).toFixed(2)}%`, color, bg };
-    };
-    const fmtPts = (v) => {
-        if (v == null) return { text: '--', color: '#63b3ed', bg: 'rgba(99,179,237,0.15)' };
-        const n = parseFloat(v);
-        const prefix = n >= 0 ? '+' : '';
-        const color = n >= 0 ? '#48bb78' : '#fc8181';
-        const bg = n >= 0 ? 'rgba(72,187,120,0.15)' : 'rgba(252,129,129,0.15)';
-        return { text: `${prefix}${n.toFixed(2)}`, color, bg };
-    };
-
+    
+    // Update main NEPSE Index
     if (idx.nepse) {
-        const chg = fmtChg(idx.nepse.change);
-        const pts = fmtPts(idx.nepse.points_change);
-        const el = document.getElementById('idx-nepse-val');
-        const chgEl = document.getElementById('idx-nepse-chg');
-        const ptsEl = document.getElementById('idx-nepse-pts');
-        const volEl = document.getElementById('idx-volume-val');
-        const turnEl = document.getElementById('idx-turnover-val');
+        const valEl = document.getElementById('ticker-nepse-val');
+        const chgEl = document.getElementById('ticker-nepse-chg');
+        const pctEl = document.getElementById('ticker-nepse-pct');
+        const itemEl = document.getElementById('ticker-nepse');
         
-        if (el) el.textContent = fmt(idx.nepse.value);
-        if (chgEl) { chgEl.textContent = chg.text; chgEl.style.color = chg.color; chgEl.style.background = chg.bg; }
-        if (ptsEl) { ptsEl.textContent = pts.text; ptsEl.style.color = pts.color; ptsEl.style.background = pts.bg; }
+        if (valEl) valEl.textContent = fmt(idx.nepse.value);
         
-        if (volEl) volEl.textContent = fmtInt(idx.nepse.volume);
-        if (turnEl) {
-            const turnoverVal = parseFloat(idx.nepse.turnover);
-            if (!isNaN(turnoverVal)) {
-                if (turnoverVal >= 1000000000) {
-                    turnEl.textContent = `Rs. ${(turnoverVal / 1000000000).toFixed(2)}B`;
-                } else if (turnoverVal >= 10000000) {
-                    turnEl.textContent = `Rs. ${(turnoverVal / 10000000).toFixed(2)} Cr`;
+        const change = parseFloat(idx.nepse.points_change || 0);
+        const changePct = parseFloat(idx.nepse.change || 0);
+        
+        if (chgEl) chgEl.textContent = (change >= 0 ? '+' : '') + change.toFixed(2);
+        if (pctEl) pctEl.textContent = (changePct >= 0 ? '+' : '') + changePct.toFixed(2) + '%';
+        
+        if (itemEl) {
+            itemEl.className = 'ticker-index-block ' + (change > 0 ? 'positive' : (change < 0 ? 'negative' : 'neutral'));
+            const arrowEl = itemEl.querySelector('.tib-arrow');
+            if (arrowEl) arrowEl.textContent = change >= 0 ? '▲' : '▼';
+        }
+        
+        // Volume and Turnover
+        const volVal = document.getElementById('ticker-vol-val');
+        if (volVal) volVal.textContent = fmtInt(idx.nepse.volume);
+        
+        const turnVal = document.getElementById('ticker-turn-val');
+        if (turnVal && idx.nepse.turnover !== undefined) {
+            const tVal = parseFloat(idx.nepse.turnover);
+            if (!isNaN(tVal)) {
+                if (tVal >= 1000000000) {
+                    turnVal.textContent = `Rs. ${(tVal / 1000000000).toFixed(2)}B`;
+                } else if (tVal >= 10000000) {
+                    turnVal.textContent = `Rs. ${(tVal / 10000000).toFixed(2)} Cr`;
                 } else {
-                    turnEl.textContent = `Rs. ${turnoverVal.toLocaleString('en-US', {maximumFractionDigits: 0})}`;
+                    turnVal.textContent = `Rs. ${tVal.toLocaleString('en-US', {maximumFractionDigits: 0})}`;
                 }
             } else {
-                turnEl.textContent = '--';
+                turnVal.textContent = '--';
             }
         }
     }
-    const upd = document.getElementById('idx-last-update');
-    if (upd) upd.textContent = 'Updated ' + new Date().toLocaleTimeString('en-US', {hour:'2-digit', minute:'2-digit', second:'2-digit'});
+    
+    // Update Sensitive Index (SENSIND)
+    if (idx.sensitive) {
+        const valEl = document.getElementById('ticker-sensind-val');
+        const chgEl = document.getElementById('ticker-sensind-chg');
+        const pctEl = document.getElementById('ticker-sensind-pct');
+        const itemEl = document.getElementById('ticker-sensind');
+        
+        if (valEl) valEl.textContent = fmt(idx.sensitive.value);
+        
+        const change = parseFloat(idx.sensitive.points_change || 0);
+        const changePct = parseFloat(idx.sensitive.change || 0);
+        
+        if (chgEl) chgEl.textContent = (change >= 0 ? '+' : '') + change.toFixed(2);
+        if (pctEl) pctEl.textContent = (changePct >= 0 ? '+' : '') + changePct.toFixed(2) + '%';
+        
+        if (itemEl) {
+            itemEl.className = 'ticker-index-block ' + (change > 0 ? 'positive' : (change < 0 ? 'negative' : 'neutral'));
+            const arrowEl = itemEl.querySelector('.tib-arrow');
+            if (arrowEl) arrowEl.textContent = change >= 0 ? '▲' : '▼';
+        }
+    }
+    
+    // Update Watchlist Ticker scroller
+    if (idx.scrips && idx.scrips.length > 0) {
+        const scripsContainer = document.getElementById('ticker-scrips-container');
+        if (scripsContainer) {
+            scripsContainer.innerHTML = '';
+            idx.scrips.forEach(s => {
+                const change = parseFloat(s.change || 0);
+                const sign = change >= 0 ? '+' : '';
+                const itemClass = change > 0 ? 'positive' : (change < 0 ? 'negative' : 'neutral');
+                scripsContainer.innerHTML += `
+                    <div class="ticker-scrip-item ${itemClass}">
+                        <span class="ticker-scrip-name">${s.symbol}</span>
+                        <span class="ticker-scrip-val">${fmt(s.ltp)}</span>
+                        <span class="ticker-scrip-chg">(${sign}${change.toFixed(2)}%)</span>
+                    </div>
+                `;
+            });
+        }
+    }
+    
+    // Update Market Status
+    if (idx.market_status) {
+        const statusEl = document.getElementById('ticker-market-status');
+        if (statusEl) {
+            const statusUpper = idx.market_status.toUpperCase();
+            statusEl.textContent = statusUpper;
+            statusEl.className = statusUpper.includes('OPEN') ? 'status-open' : 'status-close';
+        }
+    }
+    
 }
 
-// Fetch NEPSE index on page load via REST API fallback
+// ========================
+// NTP-Style Clock Sync System
+// ========================
+// Fetches server time, calculates offset, and corrects the displayed clock
+// so even if local system is 1-2 seconds off, the dashboard shows exact time.
+
+window._clockSync = {
+    offsetMs: 0,          // Server time minus local time (milliseconds)
+    isSynced: false,
+    lastSyncAt: null,
+    driftMs: 0,
+    syncCount: 0,
+};
+
+// Single round-trip time measurement
+async function _measureTimeOffset() {
+    const t1 = performance.now();
+    const localSendMs = Date.now();
+    
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 3000);
+    const r = await fetch('/api/time', { signal: controller.signal });
+    clearTimeout(timeoutId);
+    
+    const t2 = performance.now();
+    const data = await r.json();
+    
+    const roundTripMs = t2 - t1;
+    const serverMs = data.unix_ms;
+    // Estimate: server time at midpoint of request
+    const localMidpointMs = localSendMs + (roundTripMs / 2);
+    const offset = serverMs - localMidpointMs;
+    
+    return { offset, roundTripMs };
+}
+
+// Perform NTP sync with multiple samples for accuracy
+async function syncClockWithServer() {
+    const badge = document.getElementById('ticker-sync-badge');
+    if (badge) {
+        badge.className = 'sync-badge syncing';
+        badge.textContent = '⟳ SYNCING';
+    }
+    
+    try {
+        // Take 3 samples, use the one with lowest round-trip (most accurate)
+        const samples = [];
+        for (let i = 0; i < 3; i++) {
+            try {
+                const sample = await _measureTimeOffset();
+                samples.push(sample);
+            } catch(e) { /* skip failed sample */ }
+            if (i < 2) await new Promise(r => setTimeout(r, 150));
+        }
+        
+        if (samples.length === 0) {
+            throw new Error('All samples failed');
+        }
+        
+        // Pick the sample with lowest round-trip time (most accurate)
+        samples.sort((a, b) => a.roundTripMs - b.roundTripMs);
+        const best = samples[0];
+        
+        window._clockSync.offsetMs = best.offset;
+        window._clockSync.driftMs = Math.abs(best.offset);
+        window._clockSync.isSynced = true;
+        window._clockSync.lastSyncAt = Date.now();
+        window._clockSync.syncCount++;
+        
+        // Update badge
+        if (badge) {
+            const driftSec = (window._clockSync.driftMs / 1000).toFixed(1);
+            if (window._clockSync.driftMs < 500) {
+                badge.className = 'sync-badge synced';
+                badge.textContent = `✓ SYNCED`;
+                badge.title = `Clock synced | Drift: ${driftSec}s | RTT: ${best.roundTripMs.toFixed(0)}ms`;
+            } else if (window._clockSync.driftMs < 2000) {
+                badge.className = 'sync-badge synced';
+                badge.textContent = `✓ ${driftSec}s`;
+                badge.title = `Clock drift: ${driftSec}s corrected | RTT: ${best.roundTripMs.toFixed(0)}ms`;
+            } else {
+                badge.className = 'sync-badge drift';
+                badge.textContent = `⚠ DRIFT ${driftSec}s`;
+                badge.title = `WARNING: High clock drift ${driftSec}s detected! Sync your system clock.`;
+            }
+        }
+        
+        console.info(`[ClockSync] Synced. Offset: ${best.offset.toFixed(1)}ms, RTT: ${best.roundTripMs.toFixed(0)}ms, Samples: ${samples.length}`);
+    } catch(e) {
+        console.warn('[ClockSync] Sync failed:', e.message);
+        if (badge && !window._clockSync.isSynced) {
+            badge.className = 'sync-badge drift';
+            badge.textContent = '✕ UNSYNC';
+            badge.title = 'Time sync failed. Using local system clock.';
+        }
+    }
+}
+
+// Get the corrected "real" time using sync offset
+function getSyncedNow() {
+    return new Date(Date.now() + window._clockSync.offsetMs);
+}
+
+// Update Ticker clock time using synced time
+function updateTickerClock() {
+    const dateEl = document.getElementById('ticker-date');
+    const timeEl = document.getElementById('ticker-time');
+    const now = getSyncedNow();
+    const days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+    const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    const dayName = days[now.getDay()];
+    const monthName = months[now.getMonth()];
+    const dateNum = now.getDate();
+    const year = now.getFullYear();
+    if (dateEl) {
+        dateEl.textContent = `${dayName}, ${dateNum} ${monthName} ${year}`;
+    }
+    if (timeEl) {
+        const pad = (n) => String(n).padStart(2, '0');
+        const h = now.getHours();
+        const m = now.getMinutes();
+        const s = now.getSeconds();
+        const ampm = h >= 12 ? 'PM' : 'AM';
+        const h12 = h % 12 || 12;
+        timeEl.textContent = `${pad(h12)}:${pad(m)}:${pad(s)} ${ampm}`;
+    }
+}
+
+// Initial sync on page load, then tick every 100ms for smooth seconds, re-sync every 60s
+syncClockWithServer();
+updateTickerClock();
+setInterval(updateTickerClock, 200);
+setInterval(syncClockWithServer, 60000);
+
+// Fetch NEPSE index on page load via REST API fallback (with timeout)
 (async function fetchNepseIndexOnLoad() {
     try {
-        const r = await fetch('/api/nepse-index');
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 8000);
+        const r = await fetch('/api/nepse-index', { signal: controller.signal });
+        clearTimeout(timeoutId);
         if (r.ok) {
             const data = await r.json();
             updateNepseIndexBar(data);
         }
-    } catch(e) {}
+    } catch(e) {
+        console.debug('NEPSE index initial fetch skipped (market likely closed):', e.name);
+    }
 })();

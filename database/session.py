@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import (
     create_async_engine,
 )
 
+from sqlalchemy import event
 from core.config import PROJECT_ROOT, get_settings
 from database.models import Base
 
@@ -28,6 +29,15 @@ def get_engine() -> AsyncEngine:
             db_path = url.split("///")[-1]
             Path(PROJECT_ROOT / db_path).parent.mkdir(parents=True, exist_ok=True)
         _engine = create_async_engine(url, echo=not settings.is_production)
+        
+        # Optimize SQLite write latency
+        if url.startswith("sqlite"):
+            @event.listens_for(_engine.sync_engine, "connect")
+            def set_sqlite_pragma(dbapi_connection, connection_record):
+                cursor = dbapi_connection.cursor()
+                cursor.execute("PRAGMA journal_mode=WAL")
+                cursor.execute("PRAGMA synchronous=NORMAL")
+                cursor.close()
     return _engine
 
 

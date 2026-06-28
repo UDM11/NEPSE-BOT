@@ -301,6 +301,25 @@ function initWebSocket() {
                     window.showToast(`🚨 CRITICAL: Kill Switch Activated! ${ev.data.reason || ''}`, "error");
                     window.playAlert('error');
                     if (typeof window.fetchSystemHealth === 'function') window.fetchSystemHealth();
+                } else if (ev.type === 'system.warning') {
+                    window.showToast(`⚠️ ${ev.data.title || 'Warning'}: ${ev.data.message}`, "warn");
+                    window.playAlert('warning');
+                    const container = document.getElementById('alerts-container');
+                    if (container) {
+                        const alertHtml = `
+                            <div class="glass-panel alert-banner-item" style="border-left: 4px solid var(--accent-amber); padding: 0.75rem 1rem; display: flex; justify-content: space-between; align-items: center; background: rgba(217, 119, 6, 0.1); margin-top: 0.5rem;">
+                                <div style="display: flex; align-items: center; gap: 0.75rem;">
+                                    <span style="font-size: 1.25rem;">⚠️</span>
+                                    <div>
+                                        <strong style="color: var(--text-primary);">${ev.data.title}:</strong>
+                                        <span style="color: var(--text-secondary); margin-left: 0.25rem;">${ev.data.message}</span>
+                                    </div>
+                                </div>
+                                <button onclick="this.parentElement.remove()" style="background: none; border: none; color: var(--text-muted); cursor: pointer; font-size: 1.25rem; font-weight: bold; line-height: 1;">&times;</button>
+                            </div>
+                        `;
+                        container.insertAdjacentHTML('beforeend', alertHtml);
+                    }
                 }
             }
         }
@@ -313,13 +332,19 @@ document.addEventListener('DOMContentLoaded', () => {
     
     if (typeof window.loadWatchlist === 'function') window.loadWatchlist();
     if (typeof window.fetchSystemHealth === 'function') window.fetchSystemHealth();
+    if (typeof window.fetchSystemWarnings === 'function') window.fetchSystemWarnings();
     if (typeof window.fetchSecondaryInfo === 'function') window.fetchSecondaryInfo();
     if (typeof window.fetchUptime === 'function') window.fetchUptime();
+    if (typeof window.fetchCollateralDetails === 'function') window.fetchCollateralDetails();
     
     // Auto-update secondary info and health on timer loops
     setInterval(() => {
         if (typeof window.fetchSystemHealth === 'function') window.fetchSystemHealth();
     }, 3000);
+    
+    setInterval(() => {
+        if (typeof window.fetchSystemWarnings === 'function') window.fetchSystemWarnings();
+    }, 5000);
     
     setInterval(() => {
         if (typeof window.fetchSecondaryInfo === 'function') window.fetchSecondaryInfo();
@@ -328,6 +353,10 @@ document.addEventListener('DOMContentLoaded', () => {
     setInterval(() => {
         if (typeof window.fetchUptime === 'function') window.fetchUptime();
     }, 5000);
+    
+    setInterval(() => {
+        if (typeof window.fetchCollateralDetails === 'function') window.fetchCollateralDetails();
+    }, 3000);
     
     // Logs panel streamer loop (only when active logs tab is open)
     setInterval(() => {

@@ -46,6 +46,7 @@ class NaasaBrokerClient(BrokerClient):
         self._symbol_pages = {}
         self._last_page_scrape_time: dict[str, datetime] = {}
         self._scrip_cache: dict[str, tuple[str, str]] = {}
+        self.cached_collateral = 0.0
 
     async def login(self) -> bool:
         """Login to Naasa X via Keycloak email/password form."""
@@ -101,6 +102,10 @@ class NaasaBrokerClient(BrokerClient):
             # Pre-load order page immediately after login so circuit hit needs zero navigation
             await self._preload_order_page()
 
+            if not self.simulate:
+                self._running_keep_alive = True
+                self._keep_alive_task = asyncio.create_task(self._session_keep_alive_loop())
+
             await self.event_bus.publish(
                 Event(
                     type=EventType.LOGIN_SUCCESS,
@@ -129,6 +134,10 @@ class NaasaBrokerClient(BrokerClient):
             symbol_sel = self.selectors.get("order_symbol", "#searchStock")
             await self._page.wait_for_selector(symbol_sel, timeout=10000)
             logger.info("naasa_order_page_preloaded")
+            try:
+                await self.get_collateral_balance("YMHL", force_refresh=True)
+            except Exception as coll_err:
+                logger.debug("failed_to_cache_initial_collateral", error=str(coll_err))
         except Exception as exc:
             logger.warning("naasa_order_page_preload_failed", error=str(exc))
 
@@ -423,8 +432,136 @@ class NaasaBrokerClient(BrokerClient):
         # Initialize persistent HTTP client for ultra-fast direct API submissions
         self._http_client = httpx.AsyncClient(timeout=10.0)
 
+    async def _session_keep_alive_loop(self) -> None:
+        """Keep broker session warm by sending periodic pings in the page context."""
+        logger.info("session_keep_alive_loop_started")
+        try:
+            while getattr(self, "_running_keep_alive", False):
+                await asyncio.sleep(60)
+                if self.session.is_logged_in and self._page and not self._page.is_closed():
+                    try:
+                        # Fetch order details API inside browser context to mimic user activity and keep cookies warm
+                        await self._page.evaluate(
+                            """() => fetch('/MarketOrder/OrderDetails', {
+                                method: 'POST',
+                                body: JSON.stringify({ exchange: 'NEPSE', ticker: 'YMHL' }),
+                                headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest' }
+                            }).catch(() => null)"""
+                        )
+                        logger.debug("session_keep_alive_ping_sent")
+                    except Exception as e:
+                        logger.debug("session_keep_alive_ping_failed", error=str(e))
+        except asyncio.CancelledError:
+            pass
+        finally:
+            logger.info("session_keep_alive_loop_stopped")
+
+    async def get_collateral_balance(self, symbol: str, force_refresh: bool = True) -> float:
+        """Fetch available collateral balance from the broker page/API."""
+        if self.simulate:
+            return 150000.0
+
+        if not force_refresh:
+            return getattr(self, "cached_collateral", 0.0)
+
+        symbol_page = getattr(self, "_symbol_pages", {}).get(symbol.upper(), self._page)
+        if not symbol_page or symbol_page.is_closed():
+            return getattr(self, "cached_collateral", 0.0)
+
+        try:
+            # Try 1: Query direct ID "#lblMyCollateral" first (Naasa X specific and 100% robust)
+            val = await symbol_page.evaluate(
+                """() => {
+                    const el = document.getElementById('lblMyCollateral') || document.querySelector('#lblMyCollateral');
+                    return el ? el.innerText.trim() : null;
+                }"""
+            )
+            if val:
+                try:
+                    balance = float(val.replace(",", ""))
+                    self.cached_collateral = balance
+                    return balance
+                except Exception:
+                    pass
+
+            # Try 2: Query API directly via page fetch
+            result = await symbol_page.evaluate(
+                """async () => {
+                    const tryFetch = async (url) => {
+                        try {
+                            const resp = await fetch(url, {
+                                method: 'POST',
+                                headers: {
+                                    'Content-Type': 'application/json',
+                                    'X-Requested-With': 'XMLHttpRequest'
+                                }
+                            });
+                            return await resp.json();
+                        } catch(e) { return null; }
+                    };
+                    let r = await tryFetch('/MarketOrder/GetClientLimit');
+                    if (r && (r.data || r.availableCollateral || r.TradingLimit)) return r;
+                    
+                    r = await tryFetch('/Collateral/GetCollateralSummary');
+                    return r;
+                }"""
+            )
+            if result:
+                data = result.get("data") or result
+                if isinstance(data, dict):
+                    for k in ("availableCollateral", "availableLimit", "TradingLimit", "netCollateral", "collateralLimit", "currentLimit"):
+                        if k in data:
+                            try:
+                                balance = float(str(data[k]).replace(",", ""))
+                                self.cached_collateral = balance
+                                return balance
+                            except Exception:
+                                pass
+
+            # Try 3: Scrape the DOM as fallback (being careful to only match the numeric portion of the matched element)
+            scraped = await symbol_page.evaluate(
+                r"""() => {
+                    const parse = v => parseFloat(String(v).replace(/,/g, '')) || 0;
+                    const elements = document.querySelectorAll('span, div, td, label, p');
+                    for (const el of elements) {
+                        if (el.children.length > 0) continue;
+                        const text = el.innerText ? el.innerText.trim() : '';
+                        if (text.includes('Available Collateral') || text.includes('Collateral Limit') || text.includes('Trading Limit') || text.includes('Net Collateral')) {
+                            const parent = el.parentElement;
+                            if (parent) {
+                                const numEl = parent.querySelector('span, div, b');
+                                if (numEl && numEl !== el) {
+                                    const match = numEl.innerText.match(/([\d\.,]+)/);
+                                    if (match) return parse(match[1]);
+                                }
+                                const match = parent.innerText.match(/([\d\.,]+)/);
+                                if (match) return parse(match[1]);
+                            }
+                        }
+                    }
+                    return 0;
+                }"""
+            )
+            balance = float(scraped) if scraped else 0.0
+            self.cached_collateral = balance
+            return balance
+
+        except Exception as e:
+            logger.warning("failed_to_fetch_collateral_balance", symbol=symbol, error=str(e))
+            return 0.0
+
     async def shutdown(self) -> None:
         """Clean shutdown of broker resources."""
+        if hasattr(self, "_running_keep_alive"):
+            self._running_keep_alive = False
+        if hasattr(self, "_keep_alive_task") and self._keep_alive_task:
+            self._keep_alive_task.cancel()
+            try:
+                await self._keep_alive_task
+            except asyncio.CancelledError:
+                pass
+            self._keep_alive_task = None
+
         if hasattr(self, "_http_client") and self._http_client:
             try:
                 await self._http_client.aclose()
@@ -1168,22 +1305,106 @@ class NaasaBrokerClient(BrokerClient):
             if await page.locator(buy_tab).count() > 0:
                 await page.click(buy_tab)
 
-            # Enter scrip — clear field and type reliably to trigger autocomplete
-            await page.locator(symbol_sel).click()
-            await page.locator(symbol_sel).press("Control+A")
-            await page.locator(symbol_sel).press("Backspace")
-            await asyncio.sleep(0.2)
-            await page.locator(symbol_sel).type(sym, delay=120)
-            await asyncio.sleep(1.2)
-
-            dropdown_sel = self._order_config.get("symbol_dropdown_item", ".ui-autocomplete li:first-child, .autocomplete-item:first-child, li.ui-menu-item:first-child")
-            try:
-                await page.wait_for_selector(dropdown_sel, timeout=3000)
-                await page.click(dropdown_sel)
-            except Exception:
-                await page.press(symbol_sel, "ArrowDown")
-                await asyncio.sleep(0.2)
-                await page.press(symbol_sel, "Enter")
+            # Enter scrip safely: try using watchlist Buy (B) button click shortcut first (with retries)
+            matched = False
+            dropdown_items_sel = ".ui-autocomplete li.ui-menu-item"
+            
+            for attempt in range(3):
+                if matched:
+                    break
+                    
+                # 1. Try watchlist Buy (B) button shortcut first
+                try:
+                    logger.info("attempting_watchlist_buy_shortcut", symbol=sym, attempt=attempt+1)
+                    clicked_watchlist = await page.evaluate(
+                        """(sym) => {
+                            const rows = document.querySelectorAll('table tbody tr, #marketTable tbody tr, .market-table tbody tr, #tblTkr tbody tr, div.bx_1, div.hta_rw');
+                            for (const row of rows) {
+                                let symbolCell = '';
+                                const symEl = row.querySelector('.symbl_wdth');
+                                if (symEl) {
+                                    symbolCell = symEl.innerText.trim();
+                                } else {
+                                    const cells = row.querySelectorAll('td');
+                                    if (cells.length) {
+                                        symbolCell = cells[0].innerText.trim();
+                                    }
+                                }
+                                if (symbolCell.toUpperCase() === sym.toUpperCase()) {
+                                    const buyBtn = row.querySelector('a.buy, button.buy, .buy_cls') || 
+                                                   Array.from(row.querySelectorAll('a, button, span, input')).find(btn => {
+                                                       const txt = (btn.innerText || btn.textContent || btn.value || '').trim().toUpperCase();
+                                                       return txt === 'B' || txt === 'BUY' || btn.classList.contains('buy');
+                                                   });
+                                    if (buyBtn) {
+                                        buyBtn.click();
+                                        return true;
+                                    }
+                                }
+                            }
+                            return false;
+                        }""",
+                        sym
+                    )
+                    if clicked_watchlist:
+                        logger.info("clicked_watchlist_buy_button_shortcut", symbol=sym)
+                        # Poll for up to 3 seconds for Scrip field to be populated
+                        for _ in range(15):
+                            scrip_val = await page.input_value(symbol_sel)
+                            if scrip_val.strip().upper() == sym.upper():
+                                logger.info("watchlist_buy_click_successfully_populated_scrip", symbol=sym)
+                                matched = True
+                                break
+                            await asyncio.sleep(0.2)
+                        if matched:
+                            break
+                except Exception as watch_err:
+                    logger.debug("watchlist_buy_click_failed", symbol=sym, error=str(watch_err))
+                
+                # 2. Fallback to typing if watchlist shortcut did not match or populate the scrip field
+                try:
+                    logger.info("typing_symbol_attempt", symbol=sym, attempt=attempt+1)
+                    await page.locator(symbol_sel).click()
+                    await page.locator(symbol_sel).press("Control+A")
+                    await page.locator(symbol_sel).press("Backspace")
+                    await asyncio.sleep(0.3)
+                    
+                    # Type symbol characters with safe typing delay
+                    await page.locator(symbol_sel).type(sym, delay=150)
+                    await asyncio.sleep(1.5) # Wait for suggestions to load
+                    
+                    # Wait for suggestions dropdown
+                    await page.wait_for_selector(dropdown_items_sel, timeout=3000)
+                    items = page.locator(dropdown_items_sel)
+                    count = await items.count()
+                    
+                    for i in range(count):
+                        item = items.nth(i)
+                        text = await item.text_content()
+                        if text:
+                            text_upper = text.upper().strip()
+                            if text_upper.startswith(f"{sym} ") or text_upper.startswith(f"{sym}(") or f"({sym})" in text_upper:
+                                await item.click()
+                                matched = True
+                                logger.info("selected_matched_symbol_from_dropdown", symbol=sym, matched_text=text.strip())
+                                break
+                    if matched:
+                        break
+                    else:
+                        opts = []
+                        for i in range(count):
+                            opts.append((await items.nth(i).text_content() or "").strip())
+                        logger.error("autocomplete_selection_failed", symbol=sym, error=f"No exact pattern match for ({sym}) in autocomplete dropdown. Suggestions: {opts}")
+                        raise BrokerError(f"No exact pattern match for ({sym}) in autocomplete dropdown. Suggestions: {opts}")
+                except Exception as e:
+                    logger.warning("autocomplete_attempt_failed", symbol=sym, attempt=attempt+1, error=str(e))
+                    if "No exact pattern match" in str(e):
+                        # Propagate pattern mismatch immediately to prevent looping
+                        raise
+                    if attempt == 2:
+                        raise BrokerError(f"Failed to safely select {sym} after 3 attempts: {e}") from e
+                    await asyncio.sleep(1.0)
+            
             await asyncio.sleep(0.5)
 
             await page.fill(qty_sel, str(quantity))

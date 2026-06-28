@@ -47,15 +47,21 @@ class ConnectionManager:
 
 
 async def _get_live_nepse_index(broker) -> dict:
-    """Fetch live NEPSE index points, points change, volume, and turnover from NAASA API."""
+    """Fetch live NEPSE & SENSIND indices, points change, volume, turnover and market status from NAASA API."""
+    out = {
+        "nepse": None,
+        "sensitive": None,
+        "market_status": "CLOSE",
+        "timestamp": datetime.now(timezone.utc).isoformat()
+    }
     if not broker:
-        return {"nepse": None}
+        return out
     try:
         page = getattr(broker, "_page", None)
         if not page or page.is_closed():
-            return {"nepse": None}
+            return out
 
-        # Try /MarketOrder/Indices first
+        # 1. Fetch indices from /MarketOrder/Indices
         result = await page.evaluate(
             """async () => {
                 try {
@@ -72,8 +78,6 @@ async def _get_live_nepse_index(broker) -> dict:
             }"""
         )
 
-        out = {"nepse": None}
-
         if result and isinstance(result, dict) and "data" in result:
             import json as _json
             data_str = result["data"]
@@ -82,7 +86,13 @@ async def _get_live_nepse_index(broker) -> dict:
                 if not isinstance(row, dict):
                     continue
                 ticker = str(row.get("ticker", row.get("indexName", row.get("name", "")))).upper()
-                if "NEPSE" in ticker and "SENSITIVE" not in ticker and "FLOAT" not in ticker and "SENSIND" not in ticker:
+                
+                # Check for main NEPSE Index
+                is_nepse = "NEPSE" in ticker and "SENSITIVE" not in ticker and "FLOAT" not in ticker and "SENSIND" not in ticker
+                # Check for SENSITIVE Index
+                is_sensitive = "SENSITIVE" in ticker or "SENSIND" in ticker
+
+                if is_nepse or is_sensitive:
                     try:
                         ltp = float(str(row.get("LTP", row.get("currentValue", row.get("value", 0.0)))).replace(",", ""))
                         close = float(str(row.get("Close", row.get("previousClose", 0.0))).replace(",", ""))
@@ -102,78 +112,90 @@ async def _get_live_nepse_index(broker) -> dict:
                     points_change = ltp - close if ltp > 0.0 and close > 0.0 else 0.0
 
                     try:
-                        # TTQ is Total Traded Quantity (Volume in shares)
                         volume = float(str(row.get("TTQ", row.get("totalTradeQuantity", 0))).replace(",", ""))
                     except Exception:
                         volume = 0.0
 
                     try:
-                        # Volume is the monetary trade value (Turnover in NPR)
                         turnover = float(str(row.get("Volume", row.get("TTV", row.get("totalTradedValue", 0)))).replace(",", ""))
                     except Exception:
                         turnover = 0.0
 
-                    out["nepse"] = {
+                    index_data = {
                         "value": ltp,
                         "change": change,
                         "points_change": points_change,
                         "volume": volume,
                         "turnover": turnover
                     }
-                    break
 
-            if out.get("nepse") is not None:
-                return out
+                    if is_nepse:
+                        out["nepse"] = index_data
+                    elif is_sensitive:
+                        out["sensitive"] = index_data
 
-        # Fallback to /Home/MarketSummary if Indices failed or returned empty
-        result = await page.evaluate(
+        # Fallback to /Home/MarketSummary if NEPSE is still missing
+        if not out["nepse"]:
+            summary_res = await page.evaluate(
+                """async () => {
+                    try {
+                        const r = await fetch('/Home/MarketSummary', {
+                            headers: {'X-Requested-With': 'XMLHttpRequest'}
+                        });
+                        return await r.json();
+                    } catch(e) { return null; }
+                }"""
+            )
+            if summary_res and isinstance(summary_res, dict) and "data" in summary_res:
+                import json as _json
+                data_str = summary_res["data"]
+                rows = _json.loads(data_str) if isinstance(data_str, str) else data_str
+                for row in rows:
+                    if not isinstance(row, dict):
+                        continue
+                    ticker = str(row.get("ticker", row.get("indexName", row.get("name", "")))).upper()
+                    if "NEPSE" in ticker and "SENSITIVE" not in ticker and "FLOAT" not in ticker and "SENSIND" not in ticker:
+                        try:
+                            ltp = float(str(row.get("LTP", row.get("currentValue", row.get("value", 0.0)))).replace(",", ""))
+                        except Exception:
+                            ltp = 0.0
+                        try:
+                            volume = float(str(row.get("TTQ", row.get("totalTradeQuantity", 0))).replace(",", ""))
+                        except Exception:
+                            volume = 0.0
+                        try:
+                            turnover = float(str(row.get("TTV", row.get("totalTradedValue", row.get("Volume", 0)))).replace(",", ""))
+                        except Exception:
+                            turnover = 0.0
+
+                        out["nepse"] = {
+                            "value": ltp,
+                            "change": 0.0,
+                            "points_change": 0.0,
+                            "volume": volume,
+                            "turnover": turnover
+                        }
+                        break
+
+        # 2. Fetch live market status from /MarketWatch/GetMarketStatus
+        status_res = await page.evaluate(
             """async () => {
                 try {
-                    const r = await fetch('/Home/MarketSummary', {
+                    const r = await fetch('/MarketWatch/GetMarketStatus', {
                         headers: {'X-Requested-With': 'XMLHttpRequest'}
                     });
-                    return await r.json();
+                    const res = await r.json();
+                    return res && res.data ? res.data : null;
                 } catch(e) { return null; }
             }"""
         )
-        if result and isinstance(result, dict) and "data" in result:
-            import json as _json
-            data_str = result["data"]
-            rows = _json.loads(data_str) if isinstance(data_str, str) else data_str
-            for row in rows:
-                if not isinstance(row, dict):
-                    continue
-                ticker = str(row.get("ticker", row.get("indexName", row.get("name", "")))).upper()
-                if "NEPSE" in ticker and "SENSITIVE" not in ticker and "FLOAT" not in ticker and "SENSIND" not in ticker:
-                    try:
-                        ltp = float(str(row.get("LTP", row.get("currentValue", row.get("value", 0.0)))).replace(",", ""))
-                    except Exception:
-                        ltp = 0.0
-
-                    try:
-                        volume = float(str(row.get("TTQ", row.get("totalTradeQuantity", 0))).replace(",", ""))
-                    except Exception:
-                        volume = 0.0
-
-                    try:
-                        turnover = float(str(row.get("TTV", row.get("totalTradedValue", row.get("Volume", 0)))).replace(",", ""))
-                    except Exception:
-                        turnover = 0.0
-
-                    out["nepse"] = {
-                        "value": ltp,
-                        "change": 0.0,
-                        "points_change": 0.0,
-                        "volume": volume,
-                        "turnover": turnover
-                    }
-                    break
-            return out
+        if status_res:
+            out["market_status"] = str(status_res).upper()
 
     except Exception as e:
         logger.debug("nepse_index_fetch_error", error=str(e))
 
-    return {"nepse": None}
+    return out
 
 
 def create_dashboard_app(bot_state: dict | None = None) -> FastAPI:
@@ -198,6 +220,16 @@ def create_dashboard_app(bot_state: dict | None = None) -> FastAPI:
             "status": "healthy",
             "timestamp": datetime.now(timezone.utc).isoformat(),
             "uptime": state.get("uptime", "unknown"),
+        }
+
+    @app.get("/api/time")
+    async def get_server_time():
+        """Return high-precision server UTC timestamp for NTP-style clock sync."""
+        import time
+        now_utc = datetime.now(timezone.utc)
+        return {
+            "utc": now_utc.isoformat(),
+            "unix_ms": int(time.time() * 1000),
         }
 
     @app.get("/api/watchlist")
@@ -263,11 +295,46 @@ def create_dashboard_app(bot_state: dict | None = None) -> FastAPI:
             return risk.get_status()
         return {}
 
+    @app.get("/api/collateral")
+    async def get_collateral():
+        bot = state.get("bot")
+        broker = state.get("broker")
+        if broker:
+            symbol = "YMHL"
+            if bot and bot.watchlist and bot.watchlist._items:
+                symbol = list(bot.watchlist._items.keys())[0]
+            try:
+                balance = await broker.get_collateral_balance(symbol, force_refresh=False)
+                cost = 0.0
+                if bot and bot.watchlist and bot.watchlist._items:
+                    for item in bot.watchlist._items.values():
+                        if item.enabled:
+                            target_price = item.upper_circuit_price or (item.prev_close * (1 + item.circuit_percentage / 100))
+                            cost += item.quantity * target_price
+                return {"collateral": balance, "staging_cost": cost}
+            except Exception as e:
+                return {"collateral": 0.0, "staging_cost": 0.0, "error": str(e)}
+        return {"collateral": 0.0, "staging_cost": 0.0}
+
     @app.get("/api/nepse-index")
     async def nepse_index():
-        """Fetch live NEPSE index points from NAASA API."""
+        """Fetch live NEPSE & SENSIND indices and watchlist scrips from NAASA API."""
         broker = state.get("broker")
-        return await _get_live_nepse_index(broker)
+        res = await _get_live_nepse_index(broker)
+        
+        # Enrich with watchlist scrips ticks
+        scrips_list = []
+        monitor = state.get("market_monitor")
+        if monitor:
+            ticks = monitor.get_all_ticks()
+            for t in ticks.values():
+                scrips_list.append({
+                    "symbol": t.symbol,
+                    "ltp": t.ltp,
+                    "change": t.change_percentage,
+                })
+        res["scrips"] = scrips_list
+        return res
 
     @app.get("/api/system")
     async def system_status():
@@ -379,6 +446,13 @@ def create_dashboard_app(bot_state: dict | None = None) -> FastAPI:
             return {"status": "success", "message": "Bot executed/armed successfully for all symbols"}
         return {"status": "error", "message": "Bot instance not found"}
 
+    @app.get("/api/system/warnings")
+    async def get_system_warnings():
+        bot = state.get("bot")
+        if bot and hasattr(bot, "active_warnings"):
+            return {"warnings": bot.active_warnings}
+        return {"warnings": []}
+
     @app.websocket("/ws")
     async def websocket_endpoint(websocket: WebSocket):
         await manager.connect(websocket)
@@ -428,7 +502,17 @@ def create_dashboard_app(bot_state: dict | None = None) -> FastAPI:
                             broker = state.get("broker")
                             if broker:
                                 nepse_data = await _get_live_nepse_index(broker)
-                                if nepse_data and nepse_data.get("nepse") is not None:
+                                if nepse_data:
+                                    scrips_list = []
+                                    if monitor:
+                                        ticks = monitor.get_all_ticks()
+                                        for t in ticks.values():
+                                            scrips_list.append({
+                                                "symbol": t.symbol,
+                                                "ltp": t.ltp,
+                                                "change": t.change_percentage,
+                                            })
+                                    nepse_data["scrips"] = scrips_list
                                     payload["nepse_index"] = nepse_data
                         except Exception:
                             pass

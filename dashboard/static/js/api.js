@@ -231,3 +231,54 @@ window.refreshBrowserScreenshot = async function() {
         };
     }
 };
+
+// Fetch active system warnings (clock drift, collateral checks, etc.)
+window.fetchSystemWarnings = async function() {
+    try {
+        const response = await fetch('/api/system/warnings');
+        const d = await response.json();
+        const container = document.getElementById('alerts-container');
+        if (container) {
+            container.innerHTML = ''; // clear existing
+            if (d.warnings && d.warnings.length > 0) {
+                d.warnings.forEach(w => {
+                    const alertHtml = `
+                        <div class="glass-panel alert-banner-item" style="border-left: 4px solid var(--accent-amber); padding: 0.75rem 1rem; display: flex; justify-content: space-between; align-items: center; background: rgba(217, 119, 6, 0.1); margin-top: 0.5rem; width: 100%;">
+                            <div style="display: flex; align-items: center; gap: 0.75rem;">
+                                <span style="font-size: 1.25rem;">⚠️</span>
+                                <div>
+                                    <strong style="color: var(--text-primary);">${w.title}:</strong>
+                                    <span style="color: var(--text-secondary); margin-left: 0.25rem;">${w.message}</span>
+                                </div>
+                            </div>
+                            <button onclick="this.parentElement.remove()" style="background: none; border: none; color: var(--text-muted); cursor: pointer; font-size: 1.25rem; font-weight: bold; line-height: 1;">&times;</button>
+                        </div>
+                    `;
+                    container.insertAdjacentHTML('beforeend', alertHtml);
+                });
+            }
+        }
+    } catch (err) {
+        console.error("Failed to fetch system warnings: ", err);
+    }
+};
+
+// Fetch available collateral and staging costs
+window.fetchCollateralDetails = async function() {
+    try {
+        const response = await fetch('/api/collateral');
+        const data = await response.json();
+        
+        const collateralEl = document.getElementById('stat-collateral');
+        if (collateralEl) {
+            collateralEl.textContent = data.collateral !== undefined ? `NPR ${data.collateral.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}` : '--';
+        }
+        
+        const costEl = document.getElementById('stat-cost-label');
+        if (costEl) {
+            costEl.textContent = data.staging_cost !== undefined ? `Staging Cost: NPR ${data.staging_cost.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}` : 'Staging Cost: --';
+        }
+    } catch (err) {
+        console.error("Failed to fetch collateral details: ", err);
+    }
+};

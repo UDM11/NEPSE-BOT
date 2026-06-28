@@ -13,9 +13,9 @@
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     
     <!-- Modular Stylesheets -->
-    <link rel="stylesheet" href="/static/css/variables.css">
-    <link rel="stylesheet" href="/static/css/layout.css">
-    <link rel="stylesheet" href="/static/css/components.css">
+    <link rel="stylesheet" href="/static/css/variables.css?v=11">
+    <link rel="stylesheet" href="/static/css/layout.css?v=11">
+    <link rel="stylesheet" href="/static/css/components.css?v=11">
 </head>
 <body>
 
@@ -65,29 +65,70 @@
 
         <!-- Main Content Area -->
         <main class="main-content">
-            
-            <!-- Desktop Header -->
-            <header class="main-header">
-                <div class="header-title">
-                    <h2>NEPSE Ultra Trading Console</h2>
-                    <p>Preemptive order staging and real-time execution loop</p>
+            <!-- Top NEPSE Live Ticker Navbar -->
+            <div id="nepse-ticker-nav" class="nepse-ticker-navbar">
+                <div class="ticker-left-group">
+                    <div class="ticker-datetime-block">
+                        <div class="ticker-datetime-top">
+                            <span id="ticker-date">--/--/----</span>
+                            <span id="ticker-market-status" class="status-close">MARKET CLOSE</span>
+                        </div>
+                        <div class="ticker-time-row">
+                            <span id="ticker-time" class="ticker-time-display">--:--:-- --</span>
+                            <span id="ticker-sync-badge" class="sync-badge syncing" title="Clock synchronization status">⟳ SYNCING</span>
+                        </div>
+                    </div>
+
+                    <div class="ticker-separator"></div>
+
+                    <div class="ticker-index-block neutral" id="ticker-nepse">
+                        <div class="tib-row">
+                            <span class="tib-arrow">▼</span>
+                            <span class="tib-name">NEPSE</span>
+                            <span class="tib-val" id="ticker-nepse-val">--</span>
+                        </div>
+                        <div class="tib-row change-row">
+                            <span class="tib-chg" id="ticker-nepse-chg">--</span>
+                            <span class="tib-pct" id="ticker-nepse-pct">--%</span>
+                        </div>
+                    </div>
+                    
+                    <div class="ticker-index-block neutral" id="ticker-sensind">
+                        <div class="tib-row">
+                            <span class="tib-arrow">▼</span>
+                            <span class="tib-name">SENSIND</span>
+                            <span class="tib-val" id="ticker-sensind-val">--</span>
+                        </div>
+                        <div class="tib-row change-row">
+                            <span class="tib-chg" id="ticker-sensind-chg">--</span>
+                            <span class="tib-pct" id="ticker-sensind-pct">--%</span>
+                        </div>
+                    </div>
+
+                    <div class="ticker-separator"></div>
+
+                    <div class="ticker-metrics-block">
+                        <div>Turnover : <span id="ticker-turn-val">--</span></div>
+                        <div>Volume : <span id="ticker-vol-val">--</span></div>
+                    </div>
                 </div>
                 
-                <div style="display: flex; align-items: center; gap: 0.75rem;">
-                    <span class="badge badge-success" id="mobile-connection-status" style="display: none;">
-                        <span class="status-dot"></span> Websocket Connected
-                    </span>
-                    <span class="badge badge-success" id="mobile-risk-badge" style="display: none;">
-                        <span class="status-dot"></span> Risk Guard Active
-                    </span>
-                    <button class="sound-toggle-btn sound-on" id="sound-btn" onclick="window.toggleSound()" title="Toggle Sound Alerts">
-                        🔊
-                    </button>
+                <!-- Watchlist Scrips Scroller -->
+                <div class="ticker-scroller" id="ticker-scrips-container">
+                    <!-- Watchlist stock tickers will be dynamically injected here -->
                 </div>
-            </header>
+
+                <!-- Sound Toggle in Navbar -->
+                <button class="sound-toggle-btn sound-on" id="sound-btn" onclick="window.toggleSound()" title="Toggle Sound Alerts" style="margin-left: auto; flex-shrink: 0;">
+                    🔊
+                </button>
+            </div>
 
             <!-- Content Area Body -->
             <div class="content-body">
+                
+                <!-- Active Alerts Panel -->
+                <div id="alerts-container" style="display: flex; flex-direction: column; gap: 0.75rem; margin-bottom: 1.25rem; width: 100%;"></div>
                 
                 <!-- Stats Overview Grid -->
                 <div class="stats-grid">
@@ -111,34 +152,14 @@
                         <span class="stat-value" id="stat-exposure" style="color: var(--accent-amber)">Loading...</span>
                         <span class="stat-trend">Pre-configured safety caps</span>
                     </div>
+                    <div class="glass-panel stat-card success">
+                        <span class="stat-label">Available Collateral</span>
+                        <span class="stat-value" id="stat-collateral" style="color: var(--accent-emerald)">Loading...</span>
+                        <span class="stat-trend" id="stat-cost-label">Staging Cost: Loading...</span>
+                    </div>
                 </div>
 
-                <!-- NEPSE Index Ticker Bar -->
-                <div id="nepse-index-bar" style="
-                    display: flex; gap: 1rem; padding: 0.6rem 1rem;
-                    background: rgba(0,0,0,0.3); border-radius: 10px;
-                    border: 1px solid rgba(99,179,237,0.15);
-                    margin-bottom: 0.5rem; flex-wrap: wrap; align-items: center;
-                ">
-                    <span style="font-size:0.7rem; color: var(--text-muted); text-transform: uppercase; letter-spacing:0.05em; font-weight:600;">📈 NEPSE Index</span>
-                    <div style="display:flex; gap:1.5rem; flex:1; flex-wrap:wrap;">
-                        <div style="display:flex; align-items:center; gap:0.5rem;">
-                            <span style="font-size:0.7rem; color:var(--text-muted);">NEPSE</span>
-                            <span id="idx-nepse-val" style="font-family:'JetBrains Mono',monospace; font-weight:700; font-size:0.95rem; color:#63b3ed;">--</span>
-                            <span id="idx-nepse-pts" style="font-size:0.72rem; padding:0.1rem 0.4rem; border-radius:4px; font-weight:600; font-family:'JetBrains Mono',monospace;">--</span>
-                            <span id="idx-nepse-chg" style="font-size:0.72rem; padding:0.1rem 0.4rem; border-radius:4px; background:rgba(99,179,237,0.15); color:#63b3ed;">--%</span>
-                        </div>
-                        <div style="display:flex; align-items:center; gap:0.4rem; margin-left: 1rem;">
-                            <span style="font-size:0.7rem; color:var(--text-muted);">Volume</span>
-                            <span id="idx-volume-val" style="font-family:'JetBrains Mono',monospace; font-weight:600; font-size:0.9rem; color:#e2e8f0;">--</span>
-                        </div>
-                        <div style="display:flex; align-items:center; gap:0.4rem; margin-left: 1rem;">
-                            <span style="font-size:0.7rem; color:var(--text-muted);">Turnover</span>
-                            <span id="idx-turnover-val" style="font-family:'JetBrains Mono',monospace; font-weight:600; font-size:0.9rem; color:#e2e8f0;">--</span>
-                        </div>
-                    </div>
-                    <span id="idx-last-update" style="font-size:0.65rem; color:var(--text-muted);">Fetching...</span>
-                </div>
+
 
                 <!-- Tab 1: Live Terminal Pane -->
                 <div id="tab-terminal" class="tab-content active">
@@ -357,10 +378,10 @@
     <div class="toast-container" id="toast-container"></div>
 
     <!-- Core App Module Scripts -->
-    <script src="/static/js/app.js?v=2"></script>
-    <script src="/static/js/api.js?v=2"></script>
-    <script src="/static/js/watchlist.js?v=2"></script>
-    <script src="/static/js/terminal.js?v=2"></script>
-    <script src="/static/js/analytics.js?v=2"></script>
+    <script src="/static/js/app.js?v=11"></script>
+    <script src="/static/js/api.js?v=11"></script>
+    <script src="/static/js/watchlist.js?v=11"></script>
+    <script src="/static/js/terminal.js?v=11"></script>
+    <script src="/static/js/analytics.js?v=11"></script>
 </body>
 </html>
