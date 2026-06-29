@@ -94,7 +94,7 @@ The bot uses a specialized, two-phase trading loop specifically engineered to by
       - Bypass Playwright DOM entirely!
       - Inject raw HTTP POST payload using httpx.AsyncClient connection pool
       - Constant high-frequency retries (50ms interval, up to 150 attempts)
-      - Self-heal: Dynamic cookie/token updates if session errors occur
+      - Self-heal: Dynamic re-login & browser recovery (up to 3 times) with 500ms backoff
                                   │
                                   ▼ [Success]
                   ┌───────────────────────────────┐
@@ -144,7 +144,8 @@ Once triggered:
   ```
 * It fires the order directly to the endpoint `https://x.naasasecurities.com.np/MarketOrder/Order` via a persistent connection pool managed by `httpx.AsyncClient`.
 * **High Frequency Retry Loop**: Loops up to 150 times with a strict 50ms sleep interval until the order is accepted.
-* **Self-Healing Mechanics**: If the API returns errors indicating session expiry or authorization failures, the loop catches this and dynamically pulls updated cookies from the active browser context in real-time, resuming the trigger loop immediately.
+* **Self-Healing Mechanics**: If the API returns errors indicating session expiry, authorization failures, HTTP redirects (status `302`), or browser/page issues, the loop catches this and triggers an active recovery (up to 3 times per loop). It marks the session logged out, calls the automated broker login routine to re-authenticate (and re-initialize the browser if crashed), extracts new cookies, and resumes the HTTP POST loop.
+* **Smart Backoff**: Applies a `500ms` backoff sleep on healing attempts instead of the default `50ms` to give the browser time to complete re-authentication without overloading the network socket.
 
 ---
 
@@ -171,7 +172,7 @@ For any enabled watchlist symbol, the bot computes the daily upper circuit targe
 
 Every order passes through the **Risk Manager** ([risk_management/manager.py](file:///c:/Users/Asus/Desktop/BOT/risk_management/manager.py)) validation chain before submission.
 
-* **Kill Switch**: If `risk_kill_switch` is `true`, all orders are blocked immediately. The bot has a dual check on the YAML configuration key and the in-memory state.
+* **Kill Switch**: If `risk_kill_switch` is `true`, all orders are blocked immediately. The bot has a dual check on the YAML configuration key and the in-memory state. Additionally, the risk manager will automatically activate the kill switch if a permanent broker rejection is detected (e.g. margin short, invalid collateral, limit exceeded, client not found). Browser-level or network-level errors (e.g. browser context closed, page evaluation failure) are excluded from permanent rejection detection to prevent false-positive shutdowns.
 * **Daily Capital Limit**: Caps the total monetary exposure of orders placed in a single day (default: NPR 50,000).
 * **Max Quantity Per Order**: Prevents placing fat-finger orders by capping the share count per transaction (default: 10 shares for IPOs).
 * **Max Exposure**: Cops total cumulative holdings exposure.

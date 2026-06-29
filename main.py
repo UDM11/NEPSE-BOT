@@ -598,6 +598,8 @@ class NepseTradingBot:
                         triggered = True
                         
                         attempts = 0
+                        healed_attempts = 0
+                        max_healing_attempts = 3
                         max_attempts = 150
                         success = False
                         last_error_msg = None
@@ -605,6 +607,7 @@ class NepseTradingBot:
                         
                         while attempts < max_attempts and self._running and not success:
                             attempts += 1
+                            should_heal = False
                             logger.debug("fast_trigger_attempt", symbol=symbol, attempt=attempts, time=datetime.now(tz).strftime("%H:%M:%S.%f"))
                             
                             if hasattr(self.broker, "fast_trigger_buy"):
@@ -650,12 +653,14 @@ class NepseTradingBot:
                                     
                                     # Check for permanent rejection errors (e.g. Margin short)
                                     err_text = f"{reason} {message}".lower()
+                                    # Exclude browser-level/network errors (e.g. Browser closed/uninitialized, HTTP redirect/302) from triggering a permanent rejection kill-switch
+                                    is_browser_err = any(x in err_text for x in ("browser", "playwright", "page", "context"))
                                     permanent_keywords = [
                                         "margin", "collateral", "balance", "insufficient", "limit", "exceed",
-                                        "suspended", "inactive", "invalid", "closed", "range", "cannot place",
-                                        "client not found", "not enough"
+                                        "suspended", "inactive", "invalid", "market_closed", "market closed",
+                                        "session closed", "range", "cannot place", "client not found", "not enough"
                                     ]
-                                    if any(kw in err_text for kw in permanent_keywords):
+                                    if not is_browser_err and any(kw in err_text for kw in permanent_keywords):
                                         logger.critical(
                                             "fast_trigger_permanent_rejection_detected",
                                             symbol=symbol,
@@ -670,16 +675,37 @@ class NepseTradingBot:
                                             )
                                         break
 
-                                    # Self-healing: if session or cookie error occurs, refresh tokens from the active browser context
-                                    if any(x in (str(reason) + " " + str(message)).lower() for x in ("cookie", "session", "auth", "unauthorized", "login", "expired")):
+                                    # Self-healing: if session/cookie/auth error, redirect (302), or browser issues
+                                    should_heal = any(x in (str(reason) + " " + str(message)).lower() for x in (
+                                        "cookie", "session", "auth", "unauthorized", "login", "expired", "302", "redirect"
+                                    )) or "browser" in (str(reason) + " " + str(message)).lower() or "page" in (str(reason) + " " + str(message)).lower()
+
+                                    if should_heal and healed_attempts < max_healing_attempts:
+                                        healed_attempts += 1
                                         try:
-                                            playwright_cookies = await self.broker._context.cookies()
-                                            cookies = {c["name"]: c["value"] for c in playwright_cookies if "naasasecurities.com.np" in c["domain"]}
-                                            logger.info("dynamically_refreshed_expired_cookies_during_trigger_loop", symbol=symbol)
+                                            logger.info("attempting_self_healing_relogin_during_trigger_loop", symbol=symbol, healing_attempt=healed_attempts)
+                                            # Force SessionManager to think the session is expired so ensure_session triggers login
+                                            self.broker.session.mark_logged_out()
+                                            login_success = await self.broker.session.ensure_session(self.broker.login)
+                                            if login_success:
+                                                playwright_cookies = await self.broker._context.cookies()
+                                                cookies = {c["name"]: c["value"] for c in playwright_cookies if "naasasecurities.com.np" in c["domain"]}
+                                                # Refresh user agent as well
+                                                symbol_page = getattr(self.broker, "_symbol_pages", {}).get(symbol.upper(), getattr(self.broker, "_page", None))
+                                                if symbol_page:
+                                                    user_agent = await symbol_page.evaluate("navigator.userAgent")
+                                                logger.info("dynamically_refreshed_expired_cookies_during_trigger_loop", symbol=symbol)
+                                            else:
+                                                logger.warning("dynamic_relogin_failed_during_trigger_loop", symbol=symbol)
                                         except Exception as e:
-                                            logger.warning("failed_to_dynamically_refresh_cookies", error=str(e))
+                                            logger.warning("failed_to_dynamically_refresh_cookies_or_relogin", error=str(e))
+                            
                             # Constant high-frequency sleep (50ms) to ensure maximum speed once the 8% price trigger is hit
-                            await asyncio.sleep(0.05)
+                            # Apply a 500ms backoff if healing is triggered to prevent tight-looping while the browser re-authenticates
+                            if not success and (should_heal or "browser" in (last_error_msg or "").lower()):
+                                await asyncio.sleep(0.5)
+                            else:
+                                await asyncio.sleep(0.05)
                         
                         if not success:
                             logger.error("ipo_staging_fast_trigger_loop_exhausted_without_success", symbol=symbol)

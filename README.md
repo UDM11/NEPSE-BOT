@@ -13,6 +13,8 @@ Production-grade automated trading system for the Nepal Stock Exchange (NEPSE) t
 - **Smart watch list table filtering**: Utilizes the regular Market Watch table search input (`#searchInput`) to isolate and load target scrip data, ensuring the page receives real-time SockJS WebSocket ticks.
 - **Real-time WebSocket Caching**: Inspects, decodes, and caches incoming SockJS WebSocket frames in-memory (`O(1)` dict lookups) for latency-free price checks.
 - **Async Concurrency Lock**: Features a mutex execution lock to prevent parallel browser page scrapes, avoiding browser thread freezing.
+- **Session Self-Healing & Crash Recovery**: Intercepts HTTP redirects (`302`) and browser disconnect errors during order submission. Automatically triggers browser re-initialization and Keycloak re-login (up to 3 times) with a `500ms` backoff, restoring session cookies on-the-fly and resuming the POST trigger loop.
+- **Kill-Switch False-Positive Shield**: Excludes browser-level/network errors from being treated as permanent broker rejections, preventing false-positive bot shutdowns and ensuring continuous operation.
 
 ---
 

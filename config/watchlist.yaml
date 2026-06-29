@@ -1,7 +1,7 @@
 symbols:
-- symbol: YMHL
-  prev_close: 603.2
-  quantity: 10
+- symbol: SNORL
+  prev_close: 343.5
+  quantity: 20
   circuit_percentage: 15.0
   use_dynamic_circuit: true
   enabled: true
