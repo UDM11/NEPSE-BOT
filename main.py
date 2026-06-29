@@ -145,6 +145,26 @@ class NepseTradingBot:
                                 }
                             )
                         )
+                        
+                        # Automatically synchronize system clock on Windows if UAC/admin permission is granted
+                        import sys
+                        import subprocess
+                        if sys.platform == "win32":
+                            try:
+                                logger.info("attempting_automatic_clock_sync_via_uac")
+                                # Launch a self-elevating powershell process to start w32time and resync
+                                subprocess.run(
+                                    [
+                                        "powershell",
+                                        "-Command",
+                                        "Start-Process -FilePath cmd -ArgumentList '/c net start w32time & w32tm /config /manualpeerlist:\"pool.ntp.org time.google.com\" /syncfromflags:manual /update & w32tm /resync' -Verb RunAs -WindowStyle Hidden"
+                                    ],
+                                    check=True
+                                )
+                                logger.info("clock_sync_request_sent_successfully_waiting_for_sync")
+                                await asyncio.sleep(3.0)  # Wait 3 seconds for NTP synchronization to complete
+                            except Exception as sync_err:
+                                logger.warning("auto_clock_sync_trigger_failed", error=str(sync_err))
                     else:
                         logger.info("system_clock_in_sync", drift_seconds=round(drift_sec, 3))
         except Exception as exc:
