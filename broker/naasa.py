@@ -593,7 +593,7 @@ class NaasaBrokerClient(BrokerClient):
 
         self.session.touch()
 
-        # Try WebSocket cache first
+        # Try WebSocket cache first for sub-millisecond latency
         ws_data = await self._parse_ws_quote(symbol)
 
         # Determine if we should perform a browser page scrape (throttled to 1.5 seconds)
@@ -610,8 +610,46 @@ class NaasaBrokerClient(BrokerClient):
             except Exception:
                 pass
 
-        # Always try the SpecifiedQuote API for live price (most reliable source)
-        # Use any available page — fetch() is authenticated via cookies regardless of current page content
+        if ws_data:
+            # If we have WebSocket data, update high_limit occasionally in the background (non-blocking)
+            if should_scrape and symbol_page and not symbol_page.is_closed() and "MarketOrder" in symbol_page.url:
+                self._last_page_scrape_time[symbol.upper()] = now
+                async def do_bg_scrape():
+                    try:
+                        page_data = await symbol_page.evaluate(
+                            r"""() => {
+                                const parse = v => parseFloat(String(v).replace(/,/g, '')) || 0;
+                                let high_limit = 0;
+                                const elements = document.querySelectorAll('span, div, h1, h2, h3, h4, h5, h6, label');
+                                for (const el of elements) {
+                                    const txt = el.innerText ? el.innerText.trim() : '';
+                                    if (txt.includes('Low-High:')) {
+                                        const parentText = el.parentElement ? el.parentElement.innerText : el.innerText;
+                                        const match = parentText.match(/Low-High:\s*([\d\.,]+)\s*-\s*([\d\.,]+)/i);
+                                        if (match) {
+                                            high_limit = parse(match[2]);
+                                            break;
+                                        }
+                                    }
+                                }
+                                return { high_limit };
+                            }"""
+                        )
+                        if page_data and page_data.get("high_limit", 0.0) > 0.0:
+                            if not hasattr(self, "_cached_high_limit"):
+                                self._cached_high_limit = {}
+                            self._cached_high_limit[symbol.upper()] = page_data["high_limit"]
+                    except Exception:
+                        pass
+                asyncio.create_task(do_bg_scrape())
+
+            if "high_limit" not in ws_data or ws_data["high_limit"] <= 0.0:
+                cached_high = getattr(self, "_cached_high_limit", {}).get(symbol.upper(), 0.0)
+                if cached_high > 0.0:
+                    ws_data["high_limit"] = cached_high
+            return ws_data
+
+        # Fallback to API/page scraping ONLY if WebSocket data is not available
         api_page = symbol_page or (self._page if self._page and not self._page.is_closed() else None)
         if should_scrape and api_page:
             self._last_page_scrape_time[symbol.upper()] = now
@@ -623,62 +661,6 @@ class NaasaBrokerClient(BrokerClient):
                     self._cached_high_limit[symbol.upper()] = api_data["high_limit"]
                 logger.debug("price_from_specified_quote_api", symbol=symbol, ltp=api_data.get("ltp"))
                 return api_data
-
-        if ws_data:
-            # If we have WebSocket data, only scrape high_limit from the page occasionally
-            if should_scrape and symbol_page and not symbol_page.is_closed() and "MarketOrder" in symbol_page.url:
-                try:
-                    page_data = await symbol_page.evaluate(
-                        r"""() => {
-                            const parse = v => parseFloat(String(v).replace(/,/g, '')) || 0;
-                            let high_limit = 0;
-                            let ltp = 0;
-                            
-                            const elements = document.querySelectorAll('span, div, h1, h2, h3, h4, h5, h6, label');
-                            for (const el of elements) {
-                                const txt = el.innerText ? el.innerText.trim() : '';
-                                if (txt.includes('Low-High:')) {
-                                    const parentText = el.parentElement ? el.parentElement.innerText : el.innerText;
-                                    const match = parentText.match(/Low-High:\s*([\d\.,]+)\s*-\s*([\d\.,]+)/i);
-                                    if (match) {
-                                        high_limit = parse(match[2]);
-                                        break;
-                                    }
-                                }
-                            }
-                            
-                            const rows = document.querySelectorAll('tr');
-                            for (const row of rows) {
-                                const text = row.innerText.trim();
-                                if (text.includes('D.High') || text.includes('High')) {
-                                    const cells = row.querySelectorAll('td');
-                                    if (cells.length >= 2) {
-                                        ltp = parse(cells[1].innerText);
-                                        break;
-                                    }
-                                }
-                            }
-                            return { high_limit, ltp };
-                        }"""
-                    )
-                    if page_data:
-                        page_high_limit = page_data.get("high_limit", 0.0)
-                        if page_high_limit > 0.0:
-                            if not hasattr(self, "_cached_high_limit"):
-                                self._cached_high_limit = {}
-                            self._cached_high_limit[symbol.upper()] = page_high_limit
-                            ws_data["high_limit"] = max(ws_data.get("high_limit", 0.0), page_high_limit)
-                        
-                        if page_data.get("ltp", 0.0) > 0.0:
-                            ws_data["ltp"] = max(ws_data.get("ltp", 0.0), page_data["ltp"])
-                except Exception as exc:
-                    logger.debug("failed_to_scrape_order_page_high_limit", symbol=symbol, error=str(exc))
-
-            if "high_limit" not in ws_data or ws_data["high_limit"] <= 0.0:
-                cached_high = getattr(self, "_cached_high_limit", {}).get(symbol.upper(), 0.0)
-                if cached_high > 0.0:
-                    ws_data["high_limit"] = cached_high
-            return ws_data
 
         # Try scraping from the active order page second (only if we should scrape)
         if should_scrape and symbol_page and not symbol_page.is_closed() and "MarketOrder" in symbol_page.url:
