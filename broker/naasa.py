@@ -429,26 +429,78 @@ class NaasaBrokerClient(BrokerClient):
         self._market_page.on("websocket", self.network.on_websocket)
         logger.info("naasa_market_page_created")
 
-        # Initialize persistent HTTP client for ultra-fast direct API submissions
-        self._http_client = httpx.AsyncClient(timeout=10.0)
+        # Initialize persistent high-performance HTTP client with TCP/TLS socket pooling for ultra-fast API submissions
+        transport = httpx.AsyncHTTPTransport(
+            limits=httpx.Limits(max_keepalive_connections=30, max_connections=50, keepalive_expiry=300),
+            retries=0,
+        )
+        self._http_client = httpx.AsyncClient(transport=transport, timeout=5.0)
+
+    async def get_active_cookies(self) -> dict[str, str]:
+        """Extract active naasasecurities.com.np session cookies directly from Playwright context or HTTP client."""
+        if self._context:
+            try:
+                playwright_cookies = await self._context.cookies()
+                cookies = {c["name"]: c["value"] for c in playwright_cookies if "naasasecurities.com.np" in c["domain"]}
+                if cookies:
+                    return cookies
+            except Exception as e:
+                logger.debug("failed_to_extract_playwright_cookies", error=str(e))
+        return getattr(self, "_cached_live_cookies", {})
 
     async def _session_keep_alive_loop(self) -> None:
-        """Keep broker session warm by sending periodic pings in the page context."""
+        """Keep broker session warm by sending periodic pings in the page context and proactive REST API health checks."""
         logger.info("session_keep_alive_loop_started")
         try:
             while getattr(self, "_running_keep_alive", False):
-                await asyncio.sleep(60)
+                await asyncio.sleep(30)
                 if self.session.is_logged_in and self._page and not self._page.is_closed():
                     try:
-                        # Fetch order details API inside browser context to mimic user activity and keep cookies warm
+                        # 1. Fetch order details API inside browser context to mimic user activity and keep cookies warm
                         await self._page.evaluate(
                             """() => fetch('/MarketOrder/OrderDetails', {
                                 method: 'POST',
-                                body: JSON.stringify({ exchange: 'NEPSE', ticker: 'YMHL' }),
+                                body: JSON.stringify({ exchange: 'NEPSE', ticker: 'ECL' }),
                                 headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest' }
                             }).catch(() => null)"""
                         )
-                        logger.debug("session_keep_alive_ping_sent")
+                        
+                        # 2. Extract and cache live cookies
+                        active_cookies = await self.get_active_cookies()
+                        if active_cookies:
+                            self._cached_live_cookies = active_cookies
+
+                        # 3. Proactive Direct REST API Health Verification
+                        if hasattr(self, "_http_client") and self._http_client and active_cookies:
+                            user_agent = await self._page.evaluate("navigator.userAgent")
+                            headers = {
+                                "Content-Type": "application/json; charset=utf-8",
+                                "X-Requested-With": "XMLHttpRequest",
+                                "Referer": "https://x.naasasecurities.com.np/MarketOrder/Order",
+                                "User-Agent": user_agent,
+                            }
+                            resp = await self._http_client.post(
+                                "https://x.naasasecurities.com.np/MarketOrder/OrderDetails",
+                                json={"exchange": "NEPSE", "ticker": "ECL"},
+                                cookies=active_cookies,
+                                headers=headers,
+                            )
+                            if resp.status_code in (302, 401) or "login" in resp.url.path.lower():
+                                logger.warning(
+                                    "proactive_keep_alive_detected_expired_rest_session",
+                                    status_code=resp.status_code,
+                                    url=str(resp.url),
+                                )
+                                logger.info("initiating_proactive_background_relogin_before_circuit_trigger")
+                                self.session.mark_logged_out()
+                                relogin_ok = await self.session.ensure_session(self.login)
+                                if relogin_ok:
+                                    refreshed = await self.get_active_cookies()
+                                    if refreshed:
+                                        self._cached_live_cookies = refreshed
+                                    logger.info("proactive_background_relogin_successful_cookies_refreshed")
+                            else:
+                                logger.debug("proactive_keep_alive_rest_session_healthy", status_code=resp.status_code)
                     except Exception as e:
                         logger.debug("session_keep_alive_ping_failed", error=str(e))
         except asyncio.CancelledError:
@@ -1459,10 +1511,12 @@ class NaasaBrokerClient(BrokerClient):
                 logger.warning("missing_dynamic_scrip_id_or_exchange", scrip_id=scrip_id, exchange=exchange)
                 return {"success": False, "reason": "staged_order_not_fully_resolved"}
 
-            # 2. Extract active cookies from browser context
-            if not cookies:
-                playwright_cookies = await self._context.cookies()
-                cookies = {c["name"]: c["value"] for c in playwright_cookies if "naasasecurities.com.np" in c["domain"]}
+            # 2. Extract active cookies (prioritize live fresh cookies over staging cache)
+            live_cookies = await self.get_active_cookies()
+            if live_cookies:
+                cookies = live_cookies
+            elif not cookies:
+                cookies = getattr(self, "_cached_live_cookies", {})
 
             # 3. Get the user agent from browser to match headers
             if not user_agent:
@@ -1501,6 +1555,9 @@ class NaasaBrokerClient(BrokerClient):
                 "isSquareOff": 0
             }
 
+            import json
+            raw_bytes = json.dumps(payload).encode("utf-8")
+
             logger.info(
                 "fast_trigger_sending_api_request",
                 symbol=symbol,
@@ -1510,16 +1567,41 @@ class NaasaBrokerClient(BrokerClient):
                 price=price
             )
 
-            # 7. Execute direct HTTP POST request
+            # 7. Multi-Socket Burst Submission (Dual-POST concurrent execution across distinct TCP sockets)
             if not hasattr(self, "_http_client") or self._http_client is None:
-                self._http_client = httpx.AsyncClient(timeout=10.0)
+                transport = httpx.AsyncHTTPTransport(
+                    limits=httpx.Limits(max_keepalive_connections=30, max_connections=50, keepalive_expiry=300),
+                    retries=0,
+                )
+                self._http_client = httpx.AsyncClient(transport=transport, timeout=5.0)
 
-            response = await self._http_client.post(
-                "https://x.naasasecurities.com.np/MarketOrder/Order",
-                json=payload,
-                cookies=cookies,
-                headers=headers,
-            )
+            url = "https://x.naasasecurities.com.np/MarketOrder/Order"
+
+            async def _send_burst():
+                return await self._http_client.post(
+                    url,
+                    content=raw_bytes,
+                    cookies=cookies,
+                    headers=headers,
+                )
+
+            # Fire 2 concurrent HTTP POST requests over separate pooled connections
+            task1 = asyncio.create_task(_send_burst())
+            task2 = asyncio.create_task(_send_burst())
+
+            done, pending = await asyncio.wait([task1, task2], return_when=asyncio.FIRST_COMPLETED)
+            for p in pending:
+                p.cancel()
+
+            first_task = done.pop()
+            try:
+                response = first_task.result()
+            except Exception as post_err:
+                if pending:
+                    fallback_task = pending.pop()
+                    response = await fallback_task
+                else:
+                    raise post_err
 
             # 8. Handle Response
             if response.status_code != 200:

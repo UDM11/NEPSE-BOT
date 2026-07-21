@@ -632,6 +632,10 @@ class NepseTradingBot:
                             
                             if hasattr(self.broker, "fast_trigger_buy"):
                                 is_kill_active = self.settings.risk_kill_switch or (self.risk_manager.state.kill_switch_active if self.risk_manager else False)
+                                if hasattr(self.broker, "get_active_cookies"):
+                                    live_c = await self.broker.get_active_cookies()
+                                    if live_c:
+                                        cookies = live_c
                                 res = await self.broker.fast_trigger_buy(
                                     symbol=symbol,
                                     quantity=quantity,
@@ -720,12 +724,8 @@ class NepseTradingBot:
                                         except Exception as e:
                                             logger.warning("failed_to_dynamically_refresh_cookies_or_relogin", error=str(e))
                             
-                            # Constant high-frequency sleep (50ms) to ensure maximum speed once the 8% price trigger is hit
-                            # Apply a 500ms backoff if healing is triggered to prevent tight-looping while the browser re-authenticates
-                            if not success and (should_heal or "browser" in (last_error_msg or "").lower()):
-                                await asyncio.sleep(0.5)
-                            else:
-                                await asyncio.sleep(0.05)
+                            # Constant high-frequency sleep (50ms) to ensure maximum speed once the price trigger is hit
+                            await asyncio.sleep(0.05)
                         
                         if not success:
                             logger.error("ipo_staging_fast_trigger_loop_exhausted_without_success", symbol=symbol)
