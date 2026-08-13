@@ -81,6 +81,9 @@ class NetworkAnalyzer:
         self.full_bearer_token: str | None = None
         self.last_auth_headers: dict[str, str] = {}
         self._schemas: dict[str, list[str]] = {}
+        self._direct_ws_tasks: list[asyncio.Task] = []
+        self._connected_direct_urls: set[str] = set()
+
 
     def on_request(self, request) -> None:
         """Playwright request handler."""
@@ -152,6 +155,18 @@ class NetworkAnalyzer:
                 auth_method=self._detect_ws_auth(url),
             )
 
+        # Start direct connection task if not already connected
+        import asyncio
+        if url not in self._connected_direct_urls:
+            self._connected_direct_urls.add(url)
+            try:
+                loop = asyncio.get_running_loop()
+                task = loop.create_task(self._direct_ws_listener(url))
+                self._direct_ws_tasks.append(task)
+            except Exception as e:
+                logger.warning("failed_to_start_direct_ws_listener", error=str(e))
+
+
         def decode_payload(payload) -> str:
             if isinstance(payload, bytes):
                 try:
@@ -185,135 +200,7 @@ class NetworkAnalyzer:
 
             # Parse and cache WebSocket messages in real-time
             try:
-                frames_to_process = []
-                if payload_str.startswith('a['):
-                    try:
-                        outer_msg = json.loads(payload_str[1:])
-                        if isinstance(outer_msg, list):
-                            frames_to_process.extend(outer_msg)
-                    except Exception:
-                        pass
-                elif payload_str.startswith('{') or payload_str.startswith('['):
-                    try:
-                        inner_data = json.loads(payload_str)
-                        self._cache_json_msg(inner_data)
-                    except Exception:
-                        pass
-                else:
-                    frames_to_process.append(payload_str)
-
-                for frame in frames_to_process:
-                    if not isinstance(frame, str):
-                        continue
-                    
-                    decompressed_text = None
-                    # Check if compressed with caret prefix e.g., "102^eJx..." or "101^..."
-                    if "^" in frame:
-                        parts = frame.split("^", 1)
-                        b64_str = parts[1]
-                        
-                        # Add padding if needed
-                        missing_padding = len(b64_str) % 4
-                        if missing_padding:
-                            b64_str += '=' * (4 - missing_padding)
-                            
-                        try:
-                            compressed_bytes = base64.b64decode(b64_str)
-                            try:
-                                decompressed_text = zlib.decompress(compressed_bytes).decode("utf-8", errors="ignore")
-                            except Exception:
-                                decompressed_text = zlib.decompress(compressed_bytes, -zlib.MAX_WBITS).decode("utf-8", errors="ignore")
-                        except Exception as e:
-                            logger.debug("websocket_frame_decompress_error", error=str(e))
-                            continue
-                    else:
-                        decompressed_text = frame
-                        
-                    if not decompressed_text:
-                        continue
-                        
-                    # Process decompressed lines (might be multiple, separated by newline)
-                    for line in decompressed_text.splitlines():
-                        line = line.strip()
-                        if not line:
-                            continue
-                            
-                        # Schema definition line (e.g. "75#LTP^High^..." or "75#LTP^...|76#...")
-                        if "#" in line and not line.startswith("1$") and not line.startswith("2$"):
-                            sub_parts = line.split("|")
-                            for sp in sub_parts:
-                                if "#" in sp:
-                                    sp_id, sp_fields = sp.split("#", 1)
-                                    self._schemas[sp_id] = [f.strip() for f in sp_fields.split("^") if f.strip()]
-                            continue
-                            
-                        # Data update line (e.g. "1$75$25.1!HBL$datetime$value1^value2...")
-                        if line.startswith("1$") or line.startswith("2$"):
-                            parts = line.split("$")
-                            if len(parts) >= 5:
-                                _action = parts[0]
-                                schema_id = parts[1]
-                                symbol_raw = parts[2]
-                                _server_time = parts[3]
-                                values_str = parts[4]
-                                
-                                symbol = symbol_raw
-                                if "!" in symbol_raw:
-                                    symbol = symbol_raw.split("!")[-1]
-                                symbol = symbol.upper()
-                                
-                                fields = self._schemas.get(schema_id) or DEFAULT_SCHEMAS.get(schema_id)
-                                if fields and values_str:
-                                    values = values_str.split("^")
-                                    data_dict = {}
-                                    for idx, field in enumerate(fields):
-                                        if idx < len(values):
-                                            data_dict[field] = values[idx]
-                                    
-                                    # Normalize data dict to standard keys
-                                    normalized = {
-                                        "symbol": symbol,
-                                        "ltp": float(str(data_dict.get("LTP", 0.0)).replace(",", "")) if data_dict.get("LTP") else 0.0,
-                                        "bid_quantity": int(str(data_dict.get("TotalBuyQty", data_dict.get("BidQty", 0))).replace(",", "")) if data_dict.get("TotalBuyQty") or data_dict.get("BidQty") else 0,
-                                        "ask_quantity": int(str(data_dict.get("TotalSellQty", data_dict.get("OfferQty", 0))).replace(",", "")) if data_dict.get("TotalSellQty") or data_dict.get("OfferQty") else 0,
-                                        "volume": int(str(data_dict.get("TTQ", data_dict.get("Volume", 0))).replace(",", "")) if data_dict.get("TTQ") or data_dict.get("Volume") else 0,
-                                        "prev_close": float(str(data_dict.get("Close", 0.0)).replace(",", "")) if data_dict.get("Close") else 0.0,
-                                        "upper_circuit": float(str(data_dict.get("UpperCKTLimit", 0.0)).replace(",", "")) if data_dict.get("UpperCKTLimit") else 0.0,
-                                        "lower_circuit": float(str(data_dict.get("LowerCKTLimit", 0.0)).replace(",", "")) if data_dict.get("LowerCKTLimit") else 0.0,
-                                        "source": "naasa_x_websocket",
-                                        "timestamp": datetime.now(timezone.utc),
-                                    }
-                                    
-                                    self.ws_cache[symbol] = {
-                                        "data": normalized,
-                                        "timestamp": datetime.now(timezone.utc),
-                                    }
-                                    
-                                    if self.event_bus:
-                                        import asyncio
-                                        from core.events import Event, EventType
-                                        event_data = {
-                                            "symbol": symbol,
-                                            "ltp": normalized["ltp"],
-                                            "bid_quantity": normalized["bid_quantity"],
-                                            "ask_quantity": normalized["ask_quantity"],
-                                            "volume": normalized["volume"],
-                                            "prev_close": normalized["prev_close"],
-                                            "upper_circuit": normalized["upper_circuit"],
-                                            "lower_circuit": normalized["lower_circuit"],
-                                            "source": normalized["source"],
-                                            "timestamp": normalized["timestamp"].isoformat(),
-                                        }
-                                        event = Event(
-                                            type=EventType.MARKET_DATA_UPDATE,
-                                            source="network_analyzer",
-                                            data=event_data,
-                                        )
-                                        try:
-                                            loop = asyncio.get_running_loop()
-                                            loop.create_task(self.event_bus.publish(event))
-                                        except Exception as e:
-                                            logger.debug("failed_to_publish_ws_tick_event", symbol=symbol, error=str(e))
+                self._process_ws_frame(payload_str, url)
             except Exception as exc:
                 logger.debug("websocket_frame_parse_error", error=str(exc))
 
@@ -325,6 +212,164 @@ class NetworkAnalyzer:
 
         ws.on("framesent", on_frame_sent)
         ws.on("framereceived", on_frame_received)
+        ws.on("close", on_close)
+        ws.on("socketerror", on_error)
+
+    def _process_ws_frame(self, payload_str: str, url: str) -> None:
+        """Parse raw WebSocket frame (optionally compressed) and dispatch updates."""
+        frames_to_process = []
+        if payload_str.startswith('a['):
+            try:
+                outer_msg = json.loads(payload_str[1:])
+                if isinstance(outer_msg, list):
+                    frames_to_process.extend(outer_msg)
+            except Exception:
+                pass
+        elif payload_str.startswith('{') or payload_str.startswith('['):
+            try:
+                inner_data = json.loads(payload_str)
+                self._cache_json_msg(inner_data)
+            except Exception:
+                pass
+        else:
+            frames_to_process.append(payload_str)
+
+        for frame in frames_to_process:
+            if not isinstance(frame, str):
+                continue
+            
+            decompressed_text = None
+            # Check if compressed with caret prefix e.g., "102^eJx..." or "101^..."
+            if "^" in frame:
+                parts = frame.split("^", 1)
+                b64_str = parts[1]
+                
+                # Add padding if needed
+                missing_padding = len(b64_str) % 4
+                if missing_padding:
+                    b64_str += '=' * (4 - missing_padding)
+                    
+                try:
+                    compressed_bytes = base64.b64decode(b64_str)
+                    try:
+                        decompressed_text = zlib.decompress(compressed_bytes).decode("utf-8", errors="ignore")
+                    except Exception:
+                        decompressed_text = zlib.decompress(compressed_bytes, -zlib.MAX_WBITS).decode("utf-8", errors="ignore")
+                except Exception as e:
+                    logger.debug("websocket_frame_decompress_error", error=str(e))
+                    continue
+            else:
+                decompressed_text = frame
+            
+            if not decompressed_text:
+                continue
+                
+            # Process decompressed lines (might be multiple, separated by newline)
+            for line in decompressed_text.splitlines():
+                line = line.strip()
+                if not line:
+                    continue
+                    
+                # Schema definition line (e.g. "75#LTP^High^..." or "75#LTP^...|76#...")
+                if "#" in line and not line.startswith("1$") and not line.startswith("2$"):
+                    sub_parts = line.split("|")
+                    for sp in sub_parts:
+                        if "#" in sp:
+                            sp_id, sp_fields = sp.split("#", 1)
+                            self._schemas[sp_id] = [f.strip() for f in sp_fields.split("^") if f.strip()]
+                    continue
+                    
+                # Data update line (e.g. "1$75$25.1!HBL$datetime$value1^value2...")
+                if line.startswith("1$") or line.startswith("2$"):
+                    parts = line.split("$")
+                    if len(parts) >= 5:
+                        _action = parts[0]
+                        schema_id = parts[1]
+                        symbol_raw = parts[2]
+                        _server_time = parts[3]
+                        values_str = parts[4]
+                        
+                        symbol = symbol_raw
+                        if "!" in symbol_raw:
+                            symbol = symbol_raw.split("!")[-1]
+                        symbol = symbol.upper()
+                        
+                        fields = self._schemas.get(schema_id) or DEFAULT_SCHEMAS.get(schema_id)
+                        if fields and values_str:
+                            values = values_str.split("^")
+                            data_dict = {}
+                            for idx, field in enumerate(fields):
+                                if idx < len(values):
+                                    data_dict[field] = values[idx]
+                            
+                            # Normalize data dict to standard keys
+                            normalized = {
+                                "symbol": symbol,
+                                "ltp": float(str(data_dict.get("LTP", 0.0)).replace(",", "")) if data_dict.get("LTP") else 0.0,
+                                "bid_quantity": int(str(data_dict.get("TotalBuyQty", data_dict.get("BidQty", 0))).replace(",", "")) if data_dict.get("TotalBuyQty") or data_dict.get("BidQty") else 0,
+                                "ask_quantity": int(str(data_dict.get("TotalSellQty", data_dict.get("OfferQty", 0))).replace(",", "")) if data_dict.get("TotalSellQty") or data_dict.get("OfferQty") else 0,
+                                "volume": int(str(data_dict.get("TTQ", data_dict.get("Volume", 0))).replace(",", "")) if data_dict.get("TTQ") or data_dict.get("Volume") else 0,
+                                "prev_close": float(str(data_dict.get("Close", 0.0)).replace(",", "")) if data_dict.get("Close") else 0.0,
+                                "upper_circuit": float(str(data_dict.get("UpperCKTLimit", 0.0)).replace(",", "")) if data_dict.get("UpperCKTLimit") else 0.0,
+                                "lower_circuit": float(str(data_dict.get("LowerCKTLimit", 0.0)).replace(",", "")) if data_dict.get("LowerCKTLimit") else 0.0,
+                                "source": "naasa_x_websocket_direct",
+                                "timestamp": datetime.now(timezone.utc),
+                            }
+                            
+                            self.ws_cache[symbol] = {
+                                "data": normalized,
+                                "timestamp": datetime.now(timezone.utc),
+                            }
+                            
+                            if self.event_bus:
+                                import asyncio
+                                from core.events import Event, EventType
+                                event_data = {
+                                    "symbol": symbol,
+                                    "ltp": normalized["ltp"],
+                                    "bid_quantity": normalized["bid_quantity"],
+                                    "ask_quantity": normalized["ask_quantity"],
+                                    "volume": normalized["volume"],
+                                    "prev_close": normalized["prev_close"],
+                                    "upper_circuit": normalized["upper_circuit"],
+                                    "lower_circuit": normalized["lower_circuit"],
+                                    "source": normalized["source"],
+                                    "timestamp": normalized["timestamp"].isoformat(),
+                                }
+                                event = Event(
+                                    type=EventType.MARKET_DATA_UPDATE,
+                                    source="network_analyzer",
+                                    data=event_data,
+                                )
+                                try:
+                                    loop = asyncio.get_running_loop()
+                                    loop.create_task(self.event_bus.publish(event))
+                                except Exception as e:
+                                    logger.debug("failed_to_publish_ws_tick_event", symbol=symbol, error=str(e))
+
+    async def _direct_ws_listener(self, url: str) -> None:
+        """Establish direct WebSocket connection to the broker server and stream ticks directly into the event loop."""
+        import websockets
+        import asyncio
+        logger.critical("starting_direct_python_websocket_connection", url=url)
+        retry_delay = 1.0
+        while url in self._connected_direct_urls:
+            try:
+                # Naasa WebSocket usually expects standard ping/pong to stay alive
+                async with websockets.connect(url, ping_interval=20, ping_timeout=20) as websocket:
+                    logger.critical("direct_python_websocket_connected", url=url)
+                    retry_delay = 1.0
+                    async for message in websocket:
+                        message_str = message if isinstance(message, str) else message.decode("utf-8", errors="ignore")
+                        self._process_ws_frame(message_str, url)
+            except asyncio.CancelledError:
+                logger.info("direct_python_websocket_listener_cancelled", url=url)
+                break
+            except Exception as e:
+                logger.warning("direct_python_websocket_error_reconnecting", error=str(e), retry_delay=retry_delay)
+                await asyncio.sleep(retry_delay)
+                retry_delay = min(retry_delay * 2, 10.0)
+
         ws.on("close", on_close)
         ws.on("socketerror", on_error)
 
@@ -481,3 +526,8 @@ class NetworkAnalyzer:
         self._captured.clear()
         self._endpoints.clear()
         self._ws_messages.clear()
+        self._connected_direct_urls.clear()
+        for task in getattr(self, "_direct_ws_tasks", []):
+            task.cancel()
+        getattr(self, "_direct_ws_tasks", []).clear()
+

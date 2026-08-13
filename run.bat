@@ -51,6 +51,9 @@ echo  ^|  * Press Ctrl+C to stop                             ^|
 echo  +------------------------------------------------------+
 echo.
 call :CHECK_VENV
+echo  Synchronizing system clock (admin approval required)...
+powershell -Command "Start-Process -FilePath 'cmd.exe' -ArgumentList '/c net stop w32time & w32tm /config /manualpeerlist:\"pool.ntp.org time.google.com\" /syncfromflags:manual /update & net start w32time & w32tm /resync /force' -Verb RunAs -WindowStyle Hidden"
+timeout /t 2 >nul
 echo  Starting bot...
 echo.
 .venv\Scripts\python main.py
@@ -72,6 +75,9 @@ echo  ^|  * Press Ctrl+C to stop                             ^|
 echo  +------------------------------------------------------+
 echo.
 call :CHECK_VENV
+echo  Synchronizing system clock (admin approval required)...
+powershell -Command "Start-Process -FilePath 'cmd.exe' -ArgumentList '/c net stop w32time & w32tm /config /manualpeerlist:\"pool.ntp.org time.google.com\" /syncfromflags:manual /update & net start w32time & w32tm /resync /force' -Verb RunAs -WindowStyle Hidden"
+timeout /t 2 >nul
 echo  Starting bot in simulate mode...
 echo.
 .venv\Scripts\python main.py --simulate
@@ -92,6 +98,9 @@ echo  ^|  * Press Ctrl+C to stop                             ^|
 echo  +------------------------------------------------------+
 echo.
 call :CHECK_VENV
+echo  Synchronizing system clock (admin approval required)...
+powershell -Command "Start-Process -FilePath 'cmd.exe' -ArgumentList '/c net stop w32time & w32tm /config /manualpeerlist:\"pool.ntp.org time.google.com\" /syncfromflags:manual /update & net start w32time & w32tm /resync /force' -Verb RunAs -WindowStyle Hidden"
+timeout /t 2 >nul
 echo  Starting bot without dashboard...
 echo.
 .venv\Scripts\python main.py --no-dashboard
@@ -112,6 +121,9 @@ echo  ^|  * Press Ctrl+C to stop                             ^|
 echo  +------------------------------------------------------+
 echo.
 call :CHECK_VENV
+echo  Synchronizing system clock (admin approval required)...
+powershell -Command "Start-Process -FilePath 'cmd.exe' -ArgumentList '/c net stop w32time & w32tm /config /manualpeerlist:\"pool.ntp.org time.google.com\" /syncfromflags:manual /update & net start w32time & w32tm /resync /force' -Verb RunAs -WindowStyle Hidden"
+timeout /t 2 >nul
 echo  Starting simulate + no dashboard...
 echo.
 .venv\Scripts\python main.py --simulate --no-dashboard

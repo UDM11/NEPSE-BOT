@@ -1,9 +1,10 @@
 symbols:
-- symbol: ECL
-  prev_close: 372.4
+- symbol: MEPDL
+  prev_close: 396.7
   quantity: 10
   circuit_percentage: 15.0
   use_dynamic_circuit: true
   enabled: true
   strategy: ipo_daily_circuit
   is_ipo: true
+  upper_circuit_price: 456.2
