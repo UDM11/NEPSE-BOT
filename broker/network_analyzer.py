@@ -370,9 +370,6 @@ class NetworkAnalyzer:
                 await asyncio.sleep(retry_delay)
                 retry_delay = min(retry_delay * 2, 10.0)
 
-        ws.on("close", on_close)
-        ws.on("socketerror", on_error)
-
     def _parse_naasa_quote(self, symbol: str, data: dict) -> dict[str, Any] | None:
         """Best-effort parse of Naasa X market data JSON."""
         for key in ("ltp", "lastTradedPrice", "last_price", "price"):
