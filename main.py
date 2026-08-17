@@ -378,10 +378,28 @@ class NepseTradingBot:
         tick_queue = asyncio.Queue()
         tick_data = None
 
+        # Event that fires INSTANTLY when a WebSocket tick meets the trigger condition.
+        # This lets the main loop wake up without waiting for tick_queue.get(timeout=1.0).
+        _trigger_signal = asyncio.Event()
+        _signal_tick: list = [None]  # mutable container so closure can write to it
+
         async def handle_market_tick_event(event):
-            tick_data = event.data
-            if tick_data and tick_data.get("symbol") == symbol:
-                await tick_queue.put(tick_data)
+            data = event.data
+            if not data or data.get("symbol") != symbol:
+                return
+            await tick_queue.put(data)
+
+            # Fast path: signal the main loop immediately if the trigger price is reached.
+            # This bypasses the 1.0 s tick_queue timeout and fires the order as soon as
+            # the WebSocket tick arrives, rather than waiting for the next loop iteration.
+            if staged and not triggered:
+                ltp = float(data.get("ltp", 0.0))
+                hl  = float(data.get("high_limit", 0.0))
+                price_band_trigger = (ltp > 0.0 and ltp >= target_price / price_band_divisor)
+                high_limit_trigger  = (hl  > 0.0 and hl  >= target_price)
+                if price_band_trigger or high_limit_trigger:
+                    _signal_tick[0] = data
+                    _trigger_signal.set()   # wake main loop instantly
 
         self.event_bus.subscribe(EventType.MARKET_DATA_UPDATE, handle_market_tick_event)
 
@@ -389,7 +407,7 @@ class NepseTradingBot:
 
         async def aggressive_polling_loop():
             nonlocal staged, triggered
-            poll_interval_sec = 0.080 # 80ms
+            poll_interval_sec = 0.010  # 10ms — tighter fallback (was 80ms)
             
             def is_in_preopen_window():
                 now_nepal = datetime.now(tz)
@@ -742,14 +760,39 @@ class NepseTradingBot:
                             if not is_permanent_failure:
                                 triggered = False                  # Reset triggered so we can check again on the next price tick
                 
-                # Precise event-driven waiting
+                # Precise event-driven waiting.
+                # Race between:
+                #   a) trigger signal  — set by handle_market_tick_event the moment price crosses
+                #   b) any tick in queue — could be WebSocket or polling
+                # Whichever arrives first wakes us up immediately.
                 tick_data = None
                 if staged and not triggered:
                     try:
-                        # Wait for next WebSocket tick event (timeout 1.0s to remain responsive to kill switches)
-                        tick_data = await asyncio.wait_for(tick_queue.get(), timeout=1.0)
+                        if not _trigger_signal.is_set():
+                            # Wait for either a trigger signal OR a new tick (1.0 s safety timeout)
+                            signal_task = asyncio.ensure_future(_trigger_signal.wait())
+                            queue_task  = asyncio.ensure_future(tick_queue.get())
+                            done, pending = await asyncio.wait(
+                                {signal_task, queue_task},
+                                timeout=1.0,
+                                return_when=asyncio.FIRST_COMPLETED,
+                            )
+                            for t in pending:
+                                t.cancel()
+                            if signal_task in done:
+                                # Trigger condition already captured in _signal_tick
+                                tick_data = _signal_tick[0]
+                            elif queue_task in done:
+                                tick_data = queue_task.result()
+                        else:
+                            # Signal already set — consume it immediately
+                            tick_data = _signal_tick[0]
                     except asyncio.TimeoutError:
                         pass
+                    except Exception:
+                        pass
+                    finally:
+                        _trigger_signal.clear()
                 else:
                     await asyncio.sleep(1.0)
         finally:

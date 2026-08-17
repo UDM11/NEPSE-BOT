@@ -1,10 +1,10 @@
 symbols:
-- symbol: MEPDL
-  prev_close: 456.2
+- symbol: SAPIL
+  prev_close: 524.6
   quantity: 10
   circuit_percentage: 15.0
   use_dynamic_circuit: true
   enabled: true
   strategy: ipo_daily_circuit
   is_ipo: true
-  upper_circuit_price: 524.6
+  upper_circuit_price: 603.2

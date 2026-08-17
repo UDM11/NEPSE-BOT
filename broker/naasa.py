@@ -449,11 +449,16 @@ class NaasaBrokerClient(BrokerClient):
         return getattr(self, "_cached_live_cookies", {})
 
     async def _session_keep_alive_loop(self) -> None:
-        """Keep broker session warm by sending periodic pings in the page context and proactive REST API health checks."""
+        """Keep broker session and HTTP connection warm with periodic pings.
+
+        Runs every 15 s (was 30 s) to guarantee the TCP/TLS connection to NAASA
+        is in ESTABLISHED state when the order trigger fires, eliminating the
+        ~50-100 ms reconnect overhead on the critical order POST.
+        """
         logger.info("session_keep_alive_loop_started")
         try:
             while getattr(self, "_running_keep_alive", False):
-                await asyncio.sleep(30)
+                await asyncio.sleep(15)  # 15s — was 30s
                 if self.session.is_logged_in and self._page and not self._page.is_closed():
                     try:
                         # 1. Fetch order details API inside browser context to mimic user activity and keep cookies warm
@@ -501,6 +506,21 @@ class NaasaBrokerClient(BrokerClient):
                                     logger.info("proactive_background_relogin_successful_cookies_refreshed")
                             else:
                                 logger.debug("proactive_keep_alive_rest_session_healthy", status_code=resp.status_code)
+
+                            # 4. Prewarm the exact order POST endpoint so TCP socket stays ESTABLISHED.
+                            # Send a harmless malformed payload — NAASA will reject it (error code)
+                            # but the TCP connection will be kept alive and ready for the real order.
+                            try:
+                                await self._http_client.post(
+                                    "https://x.naasasecurities.com.np/MarketOrder/Order",
+                                    content=b'{"Scrip":""}',
+                                    cookies=active_cookies,
+                                    headers=headers,
+                                )
+                                logger.debug("order_endpoint_connection_prewarmed")
+                            except Exception:
+                                pass  # Ignore — just a warmup ping
+
                     except Exception as e:
                         logger.debug("session_keep_alive_ping_failed", error=str(e))
         except asyncio.CancelledError:
@@ -509,7 +529,13 @@ class NaasaBrokerClient(BrokerClient):
             logger.info("session_keep_alive_loop_stopped")
 
     async def get_collateral_balance(self, symbol: str, force_refresh: bool = True) -> float:
-        """Fetch available collateral balance from the broker page/API."""
+        """Fetch NET available funds from the broker (TotalCash - UsedCash).
+
+        Previously this returned TotalCash (lblMyCollateral) without subtracting UsedCash.
+        NAASA blocks UsedCash for every pending/active order, so using TotalCash alone
+        made the bot think it had enough funds even when UsedCash exceeded TotalCash,
+        resulting in a margin-short rejection on every order attempt.
+        """
         if self.simulate:
             return 150000.0
 
@@ -521,56 +547,87 @@ class NaasaBrokerClient(BrokerClient):
             return getattr(self, "cached_collateral", 0.0)
 
         try:
-            # Try 1: Query direct ID "#lblMyCollateral" first (Naasa X specific and 100% robust)
-            val = await symbol_page.evaluate(
-                """() => {
-                    const el = document.getElementById('lblMyCollateral') || document.querySelector('#lblMyCollateral');
-                    return el ? el.innerText.trim() : null;
-                }"""
-            )
-            if val:
-                try:
-                    balance = float(val.replace(",", ""))
-                    self.cached_collateral = balance
-                    return balance
-                except Exception:
-                    pass
-
-            # Try 2: Query API directly via page fetch
+            # Try 1: GetClientLimit API — returns TotalCash and UsedCash so we can compute net available
             result = await symbol_page.evaluate(
                 """async () => {
-                    const tryFetch = async (url) => {
-                        try {
-                            const resp = await fetch(url, {
-                                method: 'POST',
-                                headers: {
-                                    'Content-Type': 'application/json',
-                                    'X-Requested-With': 'XMLHttpRequest'
-                                }
-                            });
-                            return await resp.json();
-                        } catch(e) { return null; }
-                    };
-                    let r = await tryFetch('/MarketOrder/GetClientLimit');
-                    if (r && (r.data || r.availableCollateral || r.TradingLimit)) return r;
-                    
-                    r = await tryFetch('/Collateral/GetCollateralSummary');
-                    return r;
+                    try {
+                        const resp = await fetch('/MarketOrder/GetClientLimit', {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json',
+                                'X-Requested-With': 'XMLHttpRequest'
+                            }
+                        });
+                        return await resp.json();
+                    } catch(e) { return null; }
                 }"""
             )
             if result:
                 data = result.get("data") or result
                 if isinstance(data, dict):
-                    for k in ("availableCollateral", "availableLimit", "TradingLimit", "netCollateral", "collateralLimit", "currentLimit"):
-                        if k in data:
+                    # Prefer net available fields if broker exposes them directly
+                    for net_key in ("availableCollateral", "availableLimit", "netCollateral", "currentLimit"):
+                        if net_key in data:
                             try:
-                                balance = float(str(data[k]).replace(",", ""))
+                                net = float(str(data[net_key]).replace(",", ""))
+                                self.cached_collateral = net
+                                logger.debug(
+                                    "collateral_fetched_from_api",
+                                    field=net_key,
+                                    net_available=net,
+                                )
+                                return net
+                            except Exception:
+                                pass
+
+                    # Compute net from TotalCash - UsedCash (the real margin picture)
+                    total_keys = ("TotalCash", "totalCash", "TradingLimit", "tradingLimit", "collateralLimit")
+                    used_keys  = ("UsedCash",  "usedCash",  "BlockedAmount", "blockedAmount", "usedLimit")
+                    total = next(
+                        (float(str(data[k]).replace(",", "")) for k in total_keys if k in data), None
+                    )
+                    used = next(
+                        (float(str(data[k]).replace(",", "")) for k in used_keys  if k in data), 0.0
+                    )
+                    if total is not None:
+                        net = max(total - used, 0.0)
+                        self.cached_collateral = net
+                        logger.debug(
+                            "collateral_computed_from_total_minus_used",
+                            total_cash=total,
+                            used_cash=used,
+                            net_available=net,
+                        )
+                        return net
+
+            # Try 2: Collateral summary endpoint
+            result2 = await symbol_page.evaluate(
+                """async () => {
+                    try {
+                        const resp = await fetch('/Collateral/GetCollateralSummary', {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json',
+                                'X-Requested-With': 'XMLHttpRequest'
+                            }
+                        });
+                        return await resp.json();
+                    } catch(e) { return null; }
+                }"""
+            )
+            if result2:
+                data2 = result2.get("data") or result2
+                if isinstance(data2, dict):
+                    for k in ("availableCollateral", "availableLimit", "netCollateral", "collateralLimit", "currentLimit"):
+                        if k in data2:
+                            try:
+                                balance = float(str(data2[k]).replace(",", ""))
                                 self.cached_collateral = balance
                                 return balance
                             except Exception:
                                 pass
 
-            # Try 3: Scrape the DOM as fallback (being careful to only match the numeric portion of the matched element)
+            # Try 3: DOM scrape as last resort
             scraped = await symbol_page.evaluate(
                 r"""() => {
                     const parse = v => parseFloat(String(v).replace(/,/g, '')) || 0;
@@ -1567,7 +1624,10 @@ class NaasaBrokerClient(BrokerClient):
                 price=price
             )
 
-            # 7. Multi-Socket Burst Submission (Dual-POST concurrent execution across distinct TCP sockets)
+            # 7. Single HTTP POST submission
+            # NOTE: Previously this fired 2 concurrent duplicate POSTs ("burst") which caused
+            # BOTH orders to land on the exchange simultaneously, doubling UsedCash and
+            # triggering a margin-short rejection every time. Now we send exactly ONE order.
             if not hasattr(self, "_http_client") or self._http_client is None:
                 transport = httpx.AsyncHTTPTransport(
                     limits=httpx.Limits(max_keepalive_connections=30, max_connections=50, keepalive_expiry=300),
@@ -1577,31 +1637,12 @@ class NaasaBrokerClient(BrokerClient):
 
             url = "https://x.naasasecurities.com.np/MarketOrder/Order"
 
-            async def _send_burst():
-                return await self._http_client.post(
-                    url,
-                    content=raw_bytes,
-                    cookies=cookies,
-                    headers=headers,
-                )
-
-            # Fire 2 concurrent HTTP POST requests over separate pooled connections
-            task1 = asyncio.create_task(_send_burst())
-            task2 = asyncio.create_task(_send_burst())
-
-            done, pending = await asyncio.wait([task1, task2], return_when=asyncio.FIRST_COMPLETED)
-            for p in pending:
-                p.cancel()
-
-            first_task = done.pop()
-            try:
-                response = first_task.result()
-            except Exception as post_err:
-                if pending:
-                    fallback_task = pending.pop()
-                    response = await fallback_task
-                else:
-                    raise post_err
+            response = await self._http_client.post(
+                url,
+                content=raw_bytes,
+                cookies=cookies,
+                headers=headers,
+            )
 
             # 8. Handle Response
             if response.status_code != 200:
