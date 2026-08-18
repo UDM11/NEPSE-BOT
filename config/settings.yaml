@@ -50,7 +50,7 @@ strategies:
 
 risk:
   daily_capital_limit: 50000
-  max_quantity_per_order: 10
+  max_quantity_per_order: 30
   max_exposure: 100000
   max_orders_per_symbol_per_day: 3
   max_consecutive_failures: 5
